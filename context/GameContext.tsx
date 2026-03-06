@@ -173,6 +173,33 @@ const INITIAL_PRODUCTS: DigitalProduct[] = [
     { id: 'p1', name: 'Basic Miner', description: 'Earns 0.5 points/sec', pricePoints: 10000, priceStars: 0, isFree: false, category: 'mining', earningRate: 0.5, allowPoints: true, allowStars: false, imageData: 'https://images.unsplash.com/photo-1624365169344-933e4b3734e0?w=300' }
 ];
 
+const LOCAL_USER_CACHE_KEY = 'tliker_user_cache_v1';
+
+const loadCachedUser = (userId: string): UserState | null => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_USER_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<UserState>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (String(parsed.id || '') !== userId) return null;
+    return { ...(parsed as UserState), role: 'user' };
+  } catch {
+    return null;
+  }
+};
+
+const saveCachedUser = (user: UserState): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const safeUser = { ...user, role: 'user' as const };
+    window.localStorage.setItem(LOCAL_USER_CACHE_KEY, JSON.stringify(safeUser));
+  } catch {
+    // Ignore local storage quota or parsing issues.
+  }
+};
+
 interface GameContextType {
   user: UserState;
   isReady: boolean;
@@ -239,48 +266,63 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const userId = tgUser?.id ? String(tgUser.id) : (localStorage.getItem('debug_user_id') || `u_${Math.random().toString(36).substr(2, 9)}`);
       if (!tgUser?.id) localStorage.setItem('debug_user_id', userId);
 
+      const createDefaultUser = (): UserState => ({
+        id: userId,
+        name: tgUser?.first_name || 'New User',
+        username: tgUser?.username || '',
+        balance: 1000,
+        energy: 1000,
+        maxEnergy: 1000,
+        referrals: 0,
+        joinDate: new Date().toLocaleDateString('en-US'),
+        walletAddress: '',
+        role: 'user',
+        isBanned: false,
+        ownedProducts: [],
+        completedTaskIds: [],
+        notificationsEnabled: true,
+        theme: 'dark',
+        language: 'ar'
+      });
+
+      let resolvedUser: UserState | null = null;
+
       try {
         const res = await fetch(`/api/user/${userId}`);
         if (res.ok) {
             const data = await res.json();
-            const normalizedUser = { ...data, role: 'user' as const };
-            setUser(normalizedUser);
-            applyTheme(normalizedUser.theme || 'dark');
+            resolvedUser = { ...createDefaultUser(), ...data, role: 'user' };
         } else {
-            // Create new user
-            const newUser: UserState = {
-                id: userId,
-                name: tgUser?.first_name || 'New User',
-                username: tgUser?.username || '', 
-                balance: 1000,
-                energy: 1000,
-                maxEnergy: 1000,
-                referrals: 0,
-                joinDate: new Date().toLocaleDateString('en-US'),
-                walletAddress: '',
-                role: 'user',
-                isBanned: false,
-                ownedProducts: [],
-                completedTaskIds: [],
-                notificationsEnabled: true,
-                theme: 'dark',
-                language: 'ar'
-            };
+            resolvedUser = loadCachedUser(userId) || createDefaultUser();
             await fetch('/api/user', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newUser)
-            });
-            setUser(newUser);
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(resolvedUser)
+            }).catch(() => undefined);
         }
       } catch (error) {
           console.error("Failed to init user", error);
+          resolvedUser = loadCachedUser(userId) || createDefaultUser();
       }
+
+      if (!resolvedUser) {
+        resolvedUser = loadCachedUser(userId) || createDefaultUser();
+      }
+
+      setUser(resolvedUser);
+      applyTheme(resolvedUser.theme || 'dark');
+      saveCachedUser(resolvedUser);
       setIsReady(true);
     };
 
     initUser();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      saveCachedUser(user);
+    }
+  }, [user]);
 
   // --- Sync State to API (Debounced) ---
   const scheduleSync = (updates: Partial<UserState>) => {
@@ -297,12 +339,19 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Sync after 2 seconds of inactivity
       syncTimerRef.current = setTimeout(async () => {
           if (Object.keys(pendingUpdateRef.current).length > 0) {
-              await fetch('/api/user', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: user.id, ...pendingUpdateRef.current })
-              });
-              pendingUpdateRef.current = {};
+              const payload = { ...pendingUpdateRef.current };
+              try {
+                  const res = await fetch('/api/user', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: user.id, ...payload })
+                  });
+                  if (res.ok) {
+                      pendingUpdateRef.current = {};
+                  }
+              } catch {
+                  // Keep pending updates for retry in next sync cycle.
+              }
           }
       }, 2000);
   };
@@ -392,12 +441,19 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(async () => {
          if (user && Object.keys(pendingUpdateRef.current).length > 0) {
-             await fetch('/api/user', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: user.id, ...pendingUpdateRef.current })
-              });
-             pendingUpdateRef.current = {};
+             const payload = { ...pendingUpdateRef.current };
+             try {
+                 const res = await fetch('/api/user', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: user.id, ...payload })
+                  });
+                 if (res.ok) {
+                     pendingUpdateRef.current = {};
+                 }
+             } catch {
+                 // Keep pending updates for retry.
+             }
          }
     }, 2000);
     return true;

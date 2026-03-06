@@ -118,12 +118,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const appUrl = getAppUrl(req);
 
   if (req.method === 'GET') {
+    let mongoConnected = false;
+    if (isMongoConfigured()) {
+      const db = await getMongoDb();
+      mongoConnected = Boolean(db);
+    }
+
     res.status(200).json({
       status: 'online',
       botTokenConfigured: Boolean(getBotToken()),
       appUrlConfigured: Boolean(appUrl),
       appUrlPreview: appUrl || null,
       mongoConfigured: isMongoConfigured(),
+      mongoConnected,
     });
     return;
   }
