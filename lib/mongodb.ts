@@ -20,7 +20,13 @@ declare global {
 }
 
 const createClientPromise = (): Promise<MongoClient> => {
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, {
+    // Keep serverless functions responsive if Mongo is unavailable.
+    serverSelectionTimeoutMS: 3000,
+    connectTimeoutMS: 3000,
+    socketTimeoutMS: 10000,
+  });
+
   return client.connect();
 };
 
@@ -33,7 +39,14 @@ export const getMongoClient = async (): Promise<MongoClient | null> => {
     global.__mongoClientPromise = createClientPromise();
   }
 
-  return global.__mongoClientPromise;
+  try {
+    return await global.__mongoClientPromise;
+  } catch (error) {
+    // Reset cached promise after connection failure so next call can retry.
+    global.__mongoClientPromise = undefined;
+    console.error('MongoDB connection failed:', error);
+    return null;
+  }
 };
 
 export const getMongoDb = async (): Promise<Db | null> => {

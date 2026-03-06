@@ -48,7 +48,12 @@ const sendMessage = async (
 };
 
 const upsertTelegramUser = async (telegramUser: TelegramUser, chatId: number | string): Promise<void> => {
-  const db = await getMongoDb();
+  let db = null;
+  try {
+    db = await getMongoDb();
+  } catch (error) {
+    console.error('Mongo unavailable in webhook:', error);
+  }
   if (!db) return;
 
   try {
@@ -125,7 +130,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  await upsertTelegramUser(telegramUser, chatId);
+  // Never block webhook response on DB write.
+  void upsertTelegramUser(telegramUser, chatId);
 
   if (text === '/ping') {
     await sendMessage(botToken, chatId, 'Pong. Bot is alive.');
