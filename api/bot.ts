@@ -8,14 +8,32 @@ interface TelegramUser {
   username?: string;
 }
 
+interface TelegramSuccessfulPayment {
+  currency?: string;
+  total_amount?: number;
+  invoice_payload?: string;
+  telegram_payment_charge_id?: string;
+  provider_payment_charge_id?: string;
+}
+
 interface TelegramMessage {
   chat?: { id?: number | string };
   from?: TelegramUser;
   text?: string;
+  successful_payment?: TelegramSuccessfulPayment;
+}
+
+interface TelegramPreCheckoutQuery {
+  id?: string;
+  from?: TelegramUser;
+  currency?: string;
+  total_amount?: number;
+  invoice_payload?: string;
 }
 
 interface TelegramUpdate {
   message?: TelegramMessage;
+  pre_checkout_query?: TelegramPreCheckoutQuery;
 }
 
 type UserDoc = Record<string, any> & { _id: string };
@@ -63,6 +81,51 @@ const sendMessage = async (
   } catch (error) {
     console.error('Telegram sendMessage failed', error);
   }
+};
+
+const answerPreCheckoutQuery = async (
+  token: string,
+  preCheckoutQueryId: string,
+  ok: boolean,
+  errorMessage?: string,
+): Promise<void> => {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerPreCheckoutQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pre_checkout_query_id: preCheckoutQueryId,
+        ok,
+        ...(ok ? {} : { error_message: errorMessage || 'Payment validation failed' }),
+      }),
+    });
+  } catch (error) {
+    console.error('answerPreCheckoutQuery failed', error);
+  }
+};
+
+const extractStartParam = (text: string): string => {
+  const match = text.match(/^\/start(?:@\w+)?(?:\s+(.+))?$/i);
+  return (match?.[1] || '').trim();
+};
+
+const parseReferralUserId = (startParam: string): string | null => {
+  if (!startParam) return null;
+  const raw = startParam.startsWith('ref_') ? startParam.slice(4) : startParam;
+  if (!/^\d{3,32}$/.test(raw)) return null;
+  return raw;
+};
+
+const parseStarsPayload = (payload: string): { userId: string; productId: string } | null => {
+  const parts = payload.split('|');
+  if (parts.length < 4 || parts[0] !== 'stars') return null;
+
+  const userId = (parts[1] || '').trim();
+  const productId = (parts[2] || '').trim();
+  if (!/^\d{3,32}$/.test(userId)) return null;
+  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(productId)) return null;
+
+  return { userId, productId };
 };
 
 const upsertTelegramUser = async (telegramUser: TelegramUser, chatId: number | string): Promise<void> => {
@@ -114,6 +177,126 @@ const upsertTelegramUser = async (telegramUser: TelegramUser, chatId: number | s
   }
 };
 
+const applyReferralIfNeeded = async (newUserId: string, startParam: string): Promise<boolean> => {
+  const referrerId = parseReferralUserId(startParam);
+  if (!referrerId || referrerId === newUserId) return false;
+
+  const db = await getMongoDb();
+  if (!db) return false;
+
+  try {
+    const users = db.collection<UserDoc>('users');
+    const existingNewUser = await users.findOne({ _id: newUserId }, { projection: { referredBy: 1 } });
+    if (existingNewUser?.referredBy) return false;
+
+    const referrer = await users.findOne({ _id: referrerId }, { projection: { _id: 1 } });
+    if (!referrer) return false;
+
+    const nowIso = new Date().toISOString();
+    const setResult = await users.updateOne(
+      {
+        _id: newUserId,
+        $or: [{ referredBy: { $exists: false } }, { referredBy: null }, { referredBy: '' }],
+      },
+      {
+        $set: {
+          referredBy: referrerId,
+          updatedAt: nowIso,
+        },
+      },
+    );
+
+    if (!setResult.modifiedCount) return false;
+
+    await users.updateOne(
+      { _id: referrerId },
+      {
+        $inc: { referrals: 1 },
+        $set: { updatedAt: nowIso },
+      },
+    );
+
+    return true;
+  } catch (error) {
+    console.error('Failed to apply referral', error);
+    return false;
+  }
+};
+
+const processSuccessfulStarsPayment = async (
+  telegramUser: TelegramUser,
+  payment: TelegramSuccessfulPayment,
+): Promise<boolean> => {
+  const payload = String(payment.invoice_payload || '').trim();
+  const parsed = parseStarsPayload(payload);
+  if (!parsed) return false;
+
+  const payerId = String(telegramUser.id);
+  if (parsed.userId !== payerId) return false;
+
+  const db = await getMongoDb();
+  if (!db) return false;
+
+  try {
+    const payments = db.collection<Record<string, unknown>>('starPayments');
+    const users = db.collection<UserDoc>('users');
+    const nowIso = new Date().toISOString();
+
+    const paymentId =
+      String(payment.telegram_payment_charge_id || payment.provider_payment_charge_id || `xtr_${payload}_${payerId}`);
+
+    try {
+      await payments.insertOne({
+        _id: paymentId,
+        userId: payerId,
+        productId: parsed.productId,
+        payload,
+        amount: Number(payment.total_amount || 0),
+        currency: payment.currency || 'XTR',
+        createdAt: nowIso,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        // Duplicate webhook event for same payment.
+        return true;
+      }
+      throw error;
+    }
+
+    await users.updateOne(
+      { _id: payerId },
+      {
+        $setOnInsert: {
+          id: payerId,
+          name: telegramUser.first_name || 'User',
+          username: telegramUser.username || '',
+          balance: 1000,
+          energy: 1000,
+          maxEnergy: 1000,
+          referrals: 0,
+          joinDate: new Date().toLocaleDateString('en-US'),
+          role: 'user',
+          ownedProducts: [],
+          completedTaskIds: [],
+          isBanned: false,
+          notificationsEnabled: true,
+          language: 'ar',
+          theme: 'dark',
+          createdAt: nowIso,
+        },
+        $set: { updatedAt: nowIso, lastSeenAt: nowIso },
+        $addToSet: { ownedProducts: parsed.productId },
+      },
+      { upsert: true },
+    );
+
+    return true;
+  } catch (error) {
+    console.error('Failed to process Stars payment', error);
+    return false;
+  }
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const appUrl = getAppUrl(req);
 
@@ -142,24 +325,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const botToken = getBotToken();
   if (!botToken) {
-    // Keep 200 so Telegram does not retry aggressively.
     res.status(200).send('No token configured');
     return;
   }
 
   const update = jsonBody<TelegramUpdate>(req);
+  const preCheckoutQuery = update?.pre_checkout_query;
+
+  if (preCheckoutQuery?.id) {
+    const isStars = (preCheckoutQuery.currency || '').toUpperCase() === 'XTR';
+    await answerPreCheckoutQuery(
+      botToken,
+      preCheckoutQuery.id,
+      isStars,
+      'Only Telegram Stars (XTR) payments are supported.',
+    );
+    res.status(200).send('OK');
+    return;
+  }
+
   const message = update?.message;
   const chatId = message?.chat?.id;
   const telegramUser = message?.from;
   const text = (message?.text || '').trim();
+  const successfulPayment = message?.successful_payment;
 
   if (!message || !chatId || !telegramUser) {
     res.status(200).send('No actionable message');
     return;
   }
 
-  // Never block webhook response on DB write.
-  void upsertTelegramUser(telegramUser, chatId);
+  if (successfulPayment && String(successfulPayment.currency || '').toUpperCase() === 'XTR') {
+    const granted = await processSuccessfulStarsPayment(telegramUser, successfulPayment);
+    if (granted) {
+      await sendMessage(botToken, chatId, 'Stars payment received. Product activated successfully.');
+    }
+    res.status(200).send('OK');
+    return;
+  }
 
   if (text === '/ping') {
     await sendMessage(botToken, chatId, 'Pong. Bot is alive.');
@@ -167,20 +370,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (text.startsWith('/start')) {
-    const keyboard = appUrl
+  if (/^\/start(?:@\w+)?(?:\s+.*)?$/i.test(text)) {
+    await upsertTelegramUser(telegramUser, chatId);
+    const startParam = extractStartParam(text);
+    const referralApplied = await applyReferralIfNeeded(String(telegramUser.id), startParam);
+
+    const webAppUrl = appUrl
+      ? startParam
+        ? `${appUrl}?startapp=${encodeURIComponent(startParam)}`
+        : appUrl
+      : '';
+
+    const keyboard = webAppUrl
       ? {
-          inline_keyboard: [[{ text: '🚀 فتح الميني آب', web_app: { url: appUrl } }]],
+          inline_keyboard: [[{ text: 'Open Mini App', web_app: { url: webAppUrl } }]],
         }
       : undefined;
 
+    const referralText = referralApplied ? 'Referral has been registered successfully.\n\n' : '';
     await sendMessage(
       botToken,
       chatId,
-      `أهلًا ${telegramUser.first_name || 'صديق'}.\n\nاضغط الزر لفتح الميني آب.`,
+      `${referralText}Welcome ${telegramUser.first_name || 'friend'}.\n\nTap the button below to open the mini app.`,
       keyboard,
     );
+
+    res.status(200).send('OK');
+    return;
   }
+
+  // Non-/start messages should still keep chat id synced.
+  void upsertTelegramUser(telegramUser, chatId);
 
   if (text === '/admin') {
     if (!appUrl) {

@@ -9,7 +9,7 @@ Telegram WebApp with admin panel, API routes, and MongoDB persistence.
 2. Copy env file:
    `cp .env.example .env.local` (or create `.env.local` manually on Windows)
 3. Set at least:
-   `TELEGRAM_BOT_TOKEN` and `APP_URL`
+   `TELEGRAM_BOT_TOKEN`, `APP_URL`, and `VITE_TELEGRAM_BOT_USERNAME`
 4. Run:
    `npm run dev`
 
@@ -37,3 +37,4 @@ Local development uses `server.ts` and `database.json` fallback unless your envi
 - `POST /api/admin/broadcast` (requires Bearer admin token)
 - `GET /api/admin/stats` (requires Bearer admin token)
 - `GET|POST /api/bot` (Telegram webhook endpoint)
+- `POST /api/stars/create-invoice` (create Telegram Stars invoice link)

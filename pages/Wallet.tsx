@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useGame } from '../context/GameContext';
 import { Wallet as WalletIcon, ChevronLeft, Gift, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -7,8 +7,15 @@ import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 
 const Wallet: React.FC = () => {
   const wallet = useTonWallet();
-  const { user, t } = useGame();
+  const { user, t, updateWalletAddress } = useGame();
   const navigate = useNavigate();
+
+  React.useEffect(() => {
+    const address = wallet?.account?.address;
+    if (address && address !== user.walletAddress) {
+      updateWalletAddress(address);
+    }
+  }, [wallet?.account?.address, user.walletAddress, updateWalletAddress]);
 
   return (
     <div className="h-screen bg-dark text-white px-6 pt-10 pb-32 overflow-y-auto custom-scrollbar" dir="rtl">
@@ -47,9 +54,12 @@ const Wallet: React.FC = () => {
           </div>
 
           {wallet && (
-            <div className="mt-6 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-center justify-center gap-2">
+            <div className="mt-6 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl space-y-2">
+              <div className="flex items-center justify-center gap-2">
                 <CheckCircle2 size={16} className="text-emerald-500"/>
                 <p className="text-emerald-500 text-xs font-bold">{t('wallet_connected')}</p>
+              </div>
+              <p className="text-[10px] text-emerald-300 font-mono break-all">{wallet.account.address}</p>
             </div>
           )}
       </div>

@@ -170,10 +170,21 @@ const INITIAL_TASKS: Task[] = [
 ];
 
 const INITIAL_PRODUCTS: DigitalProduct[] = [
-    { id: 'p1', name: 'Basic Miner', description: 'Earns 0.5 points/sec', pricePoints: 10000, priceStars: 0, isFree: false, category: 'mining', earningRate: 0.5, allowPoints: true, allowStars: false, imageData: 'https://images.unsplash.com/photo-1624365169344-933e4b3734e0?w=300' }
+    { id: 'p1', name: 'Basic Miner', description: 'Earns 0.5 points/sec', pricePoints: 10000, priceStars: 50, isFree: false, category: 'mining', earningRate: 0.5, allowPoints: true, allowStars: true, imageData: 'https://images.unsplash.com/photo-1624365169344-933e4b3734e0?w=300' }
 ];
 
 const LOCAL_USER_CACHE_KEY = 'tliker_user_cache_v1';
+const DEFAULT_BOT_USERNAME = 'FBJNKMLBOT';
+
+const getBotUsername = (): string => {
+  const fromEnv = (
+    import.meta.env.VITE_TELEGRAM_BOT_USERNAME ||
+    import.meta.env.VITE_BOT_USERNAME ||
+    DEFAULT_BOT_USERNAME
+  ).trim();
+
+  return fromEnv.replace(/^@/, '') || DEFAULT_BOT_USERNAME;
+};
 
 const loadCachedUser = (userId: string): UserState | null => {
   if (typeof window === 'undefined') return null;
@@ -221,6 +232,7 @@ interface GameContextType {
   buyP2POffer: (offerId: string) => Promise<{ success: boolean, message: string }>;
   cancelP2POffer: (offerId: string) => Promise<{ success: boolean, message: string }>;
   buyProductWithPoints: (productId: string) => Promise<{ success: boolean, message: string }>;
+  buyProductWithStars: (productId: string) => Promise<{ success: boolean, message: string }>;
   adminLogin: () => void;
   adminLogout: () => void;
   toggleTheme: () => void;
@@ -517,12 +529,77 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const buyProductWithPoints = async (productId: string) => {
     if (!user) return { success: false, message: 'Error' };
     const prod = digitalProducts.find(p => p.id === productId);
-    if (!prod || user.balance < prod.pricePoints) return { success: false, message: 'Insufficient balance' };
+    if (!prod) return { success: false, message: 'Product not found' };
+    if (user.ownedProducts.includes(productId)) return { success: false, message: 'Product already owned' };
+    if (user.balance < prod.pricePoints) return { success: false, message: 'Insufficient balance' };
     scheduleSync({ 
         balance: user.balance - prod.pricePoints, 
         ownedProducts: [...user.ownedProducts, productId] 
     });
     return { success: true, message: 'Product purchased' };
+  };
+
+  const refreshUserFromServer = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/user/${userId}`);
+      if (!res.ok) return;
+      const serverUser = await res.json();
+      setUser(prev => (prev ? { ...prev, ...serverUser, role: prev.role } : prev));
+    } catch {
+      // Ignore refresh errors.
+    }
+  };
+
+  const buyProductWithStars = async (productId: string) => {
+    if (!user) return { success: false, message: 'Error' };
+    const prod = digitalProducts.find(p => p.id === productId);
+    if (!prod) return { success: false, message: 'Product not found' };
+    if (user.ownedProducts.includes(productId)) return { success: false, message: 'Product already owned' };
+    if (!prod.allowStars || !prod.priceStars || prod.priceStars <= 0) {
+      return { success: false, message: 'Stars purchase is disabled for this product' };
+    }
+
+    const tg = window.Telegram?.WebApp;
+    if (!tg?.openInvoice) {
+      return { success: false, message: 'Open this app inside Telegram to pay with Stars' };
+    }
+
+    try {
+      const res = await fetch('/api/stars/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          productId: prod.id,
+          title: prod.name,
+          description: prod.description,
+          starsAmount: Math.floor(prod.priceStars),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success || !data?.invoiceLink) {
+        return { success: false, message: data?.error || 'Failed to create Stars invoice' };
+      }
+
+      const invoiceStatus = await new Promise<string>((resolve) => {
+        tg.openInvoice(data.invoiceLink as string, (status: string) => resolve(status || 'unknown'));
+      });
+
+      if (invoiceStatus !== 'paid') {
+        if (invoiceStatus === 'cancelled') {
+          return { success: false, message: 'Payment was cancelled' };
+        }
+        return { success: false, message: `Payment status: ${invoiceStatus}` };
+      }
+
+      // Payment is confirmed by Telegram; refresh user to pull updated owned products from backend.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await refreshUserFromServer(user.id);
+      return { success: true, message: 'Stars payment completed successfully' };
+    } catch {
+      return { success: false, message: 'Unable to start Stars payment' };
+    }
   };
 
   const spinWheel = async (prize: number) => {
@@ -545,7 +622,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateWalletAddress = (addr: string) => scheduleSync({ walletAddress: addr });
-  const getReferralLink = () => `https://t.me/tlakerbot?start=${user?.id}`;
+  const getReferralLink = () => {
+    const botUsername = getBotUsername();
+    const userId = user?.id ? String(user.id) : '';
+    return `https://t.me/${botUsername}?start=ref_${encodeURIComponent(userId)}`;
+  };
   
   // Admin role is session-only and should not be persisted to user profile.
   const adminLogin = () => setUser(prev => (prev ? { ...prev, role: 'admin' } : null));
@@ -574,10 +655,10 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   if (!isReady || !user) return <div className="h-screen bg-black flex items-center justify-center text-white">Loading Global Data...</div>;
 
   return (
-    <GameContext.Provider value={{
+      <GameContext.Provider value={{
       user, isReady, lang: user.language || 'ar', t, setLanguage, tasks, transactions, p2pOffers, digitalProducts, paymentMethods,
       handleClick, completeTask, requestWithdrawal, requestDeposit, updateWalletAddress, getReferralLink,
-      createP2POffer, buyP2POffer, cancelP2POffer, buyProductWithPoints, adminLogin, adminLogout, toggleTheme, toggleNotifications,
+      createP2POffer, buyP2POffer, cancelP2POffer, buyProductWithPoints, buyProductWithStars, adminLogin, adminLogout, toggleTheme, toggleNotifications,
       copyReferralLink, fetchReferralsList, referralReward: 1000,
       adminAddTask, adminDeleteTask, adminAddProduct, adminDeleteProduct, adminProcessTransaction, adminBanUser,
       startChallenge, resolveChallenge, spinWheel

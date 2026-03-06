@@ -159,13 +159,13 @@ const Admin: React.FC = () => {
           name: newProd.name,
           description: newProd.description || 'منتج تعدين',
           pricePoints: Number(newProd.pricePoints),
-          priceStars: 0,
+          priceStars: Number(newProd.priceStars || 50),
           earningRate: Number(newProd.earningRate || 0),
           imageData: newProd.imageData || 'https://via.placeholder.com/150',
           isFree: false,
           category: 'mining',
           allowPoints: true,
-          allowStars: false
+          allowStars: true
       });
       setShowProdForm(false);
       setNewProd({ pricePoints: 5000, earningRate: 0.1 });
