@@ -13,6 +13,11 @@ interface LoginBody {
   userId?: string;
 }
 
+const allowWebAdminLogin = (): boolean => {
+  const value = (process.env.ALLOW_WEB_ADMIN_LOGIN || 'true').trim().toLowerCase();
+  return value !== 'false' && value !== '0' && value !== 'no';
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     methodNotAllowed(res, ['POST']);
@@ -38,8 +43,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (!isAdminUserAllowed(userId)) {
-    res.status(403).json({ error: 'This Telegram user is not allowed as admin' });
+  if (userId) {
+    if (!isAdminUserAllowed(userId)) {
+      res.status(403).json({ error: 'This Telegram user is not allowed as admin' });
+      return;
+    }
+  } else if (!allowWebAdminLogin()) {
+    res.status(403).json({ error: 'Web admin login is disabled' });
     return;
   }
 

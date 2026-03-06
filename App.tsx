@@ -43,11 +43,13 @@ const RedirectHandler = () => {
 const App: React.FC = () => {
   const [isTelegram, setIsTelegram] = React.useState(false);
   const [isDev, setIsDev] = React.useState(false);
+  const [isAdminRoute, setIsAdminRoute] = React.useState(false);
 
   React.useEffect(() => {
     const tg = window.Telegram?.WebApp;
     const isTg = !!tg?.initData;
     const isDevEnv = window.location.hostname.includes('localhost') || window.location.hostname.includes('run.app');
+    const isAdminPath = window.location.hash.startsWith('#/admin');
     
     if (isTg) {
       setIsTelegram(true);
@@ -59,9 +61,10 @@ const App: React.FC = () => {
       setIsTelegram(false);
     }
     setIsDev(isDevEnv);
+    setIsAdminRoute(isAdminPath);
   }, []);
 
-  if (!isTelegram && !isDev) {
+  if (!isTelegram && !isDev && !isAdminRoute) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center text-white">
         <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-6 animate-pulse">
