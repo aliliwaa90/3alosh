@@ -31,7 +31,9 @@ const RedirectHandler = () => {
   const navigate = useNavigate();
   React.useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (tg?.initDataUnsafe?.start_param === 'admin_panel') {
+    const startParamFromTelegram = tg?.initDataUnsafe?.start_param;
+    const startParamFromUrl = new URLSearchParams(window.location.search).get('start_param');
+    if (startParamFromTelegram === 'admin_panel' || startParamFromUrl === 'admin_panel') {
       navigate('/admin');
     }
   }, [navigate]);

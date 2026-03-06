@@ -199,7 +199,7 @@ if (token) {
        bot?.sendMessage(chatId, 'لوحة تحكم المسؤول 🔒', {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'فتح لوحة الإدارة 🔑', web_app: { url: appUrl + '?start_param=admin_panel' } }]
+            [{ text: 'فتح لوحة الإدارة 🔑', web_app: { url: appUrl + '/#/admin' } }]
           ]
         }
       });

@@ -181,8 +181,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    const adminUrl = `${appUrl}/#/admin`;
     await sendMessage(botToken, chatId, 'Admin panel link:', {
-      inline_keyboard: [[{ text: 'Open Admin Panel', web_app: { url: `${appUrl}?start_param=admin_panel` } }]],
+      inline_keyboard: [[{ text: 'Open Admin Panel', web_app: { url: adminUrl } }]],
     });
   }
 
