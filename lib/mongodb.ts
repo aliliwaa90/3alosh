@@ -1,7 +1,34 @@
 import { Db, MongoClient } from 'mongodb';
 
-const uri = (process.env.MONGODB_URI || '').trim();
-const explicitDbName = (process.env.MONGODB_DB || '').trim();
+const cleanEnvValue = (value: string | undefined): string => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  // Handle values accidentally pasted with quotes in dashboard env settings.
+  return trimmed.replace(/^['"]|['"]$/g, '').trim();
+};
+
+const firstNonEmpty = (...values: Array<string | undefined>): string => {
+  for (const value of values) {
+    const cleaned = cleanEnvValue(value);
+    if (cleaned) return cleaned;
+  }
+  return '';
+};
+
+const uri = firstNonEmpty(
+  process.env.MONGODB_URI,
+  process.env.MONGO_URI,
+  process.env.MONGODB_URL,
+  process.env.MONGO_URL,
+  process.env.DATABASE_URL,
+);
+
+const explicitDbName = firstNonEmpty(
+  process.env.MONGODB_DB,
+  process.env.MONGO_DB,
+  process.env.MONGO_DB_NAME,
+  process.env.DATABASE_NAME,
+);
 
 const parseDbNameFromUri = (value: string): string => {
   try {

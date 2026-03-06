@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMongoDb } from '../lib/mongodb.js';
+import { getMongoDb, isMongoConfigured } from '../lib/mongodb.js';
 import { jsonBody, methodNotAllowed } from '../lib/http.js';
 
 interface TelegramUser {
@@ -123,6 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       botTokenConfigured: Boolean(getBotToken()),
       appUrlConfigured: Boolean(appUrl),
       appUrlPreview: appUrl || null,
+      mongoConfigured: isMongoConfigured(),
     });
     return;
   }

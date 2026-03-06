@@ -20,6 +20,7 @@ Local development uses `server.ts` and `database.json` fallback unless your envi
 1. Create a MongoDB Atlas cluster (or any MongoDB server).
 2. In Vercel Project Settings -> Environment Variables, set all values from `.env.example`:
    `MONGODB_URI` and optional `MONGODB_DB`.
+   The app also accepts URI aliases: `MONGO_URI`, `MONGODB_URL`, `MONGO_URL`, `DATABASE_URL`.
 3. Set admin security variables:
    `ADMIN_PASSWORD` (required), optional `ADMIN_USER_IDS` (comma-separated Telegram IDs), and optional `ADMIN_SECRET`.
 4. Set Telegram bot token:
