@@ -5,8 +5,8 @@ import {
   isAdminPasswordConfigured,
   isAdminPasswordValid,
   isAdminUserAllowed,
-} from '../../lib/adminAuth';
-import { jsonBody, methodNotAllowed } from '../../lib/http';
+} from '../../lib/adminAuth.js';
+import { jsonBody, methodNotAllowed } from '../../lib/http.js';
 
 interface LoginBody {
   password?: string;

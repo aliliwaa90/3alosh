@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyAdminToken } from '../../lib/adminAuth';
-import { getMongoDb } from '../../lib/mongodb';
-import { jsonBody, methodNotAllowed } from '../../lib/http';
+import { verifyAdminToken } from '../../lib/adminAuth.js';
+import { getMongoDb } from '../../lib/mongodb.js';
+import { jsonBody, methodNotAllowed } from '../../lib/http.js';
 
 interface BroadcastBody {
   message?: string;

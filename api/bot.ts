@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMongoDb } from '../lib/mongodb';
-import { jsonBody, methodNotAllowed } from '../lib/http';
+import { getMongoDb } from '../lib/mongodb.js';
+import { jsonBody, methodNotAllowed } from '../lib/http.js';
 
 interface TelegramUser {
   id: number | string;

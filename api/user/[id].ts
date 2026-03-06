@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMongoDb } from '../../lib/mongodb';
-import { methodNotAllowed } from '../../lib/http';
+import { getMongoDb } from '../../lib/mongodb.js';
+import { methodNotAllowed } from '../../lib/http.js';
 
 type UserDoc = Record<string, unknown> & { _id: string };
 
