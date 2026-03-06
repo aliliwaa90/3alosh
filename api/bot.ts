@@ -23,7 +23,25 @@ type UserDoc = Record<string, any> & { _id: string };
 const getBotToken = (): string =>
   (process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || '').trim();
 
-const getAppUrl = (): string => (process.env.APP_URL || '').trim();
+const normalizeUrl = (value: string): string => value.replace(/\/+$/, '');
+
+const getHeaderValue = (header: string | string[] | undefined): string => {
+  if (!header) return '';
+  if (Array.isArray(header)) return header[0] || '';
+  return header.split(',')[0]?.trim() || '';
+};
+
+const getAppUrl = (req: VercelRequest): string => {
+  const fromEnv = (process.env.APP_URL || '').trim();
+  if (fromEnv) return normalizeUrl(fromEnv);
+
+  const forwardedHost = getHeaderValue(req.headers['x-forwarded-host']);
+  const host = forwardedHost || getHeaderValue(req.headers.host);
+  if (!host) return '';
+
+  const proto = getHeaderValue(req.headers['x-forwarded-proto']) || 'https';
+  return normalizeUrl(`${proto}://${host}`);
+};
 
 const sendMessage = async (
   token: string,
@@ -97,11 +115,14 @@ const upsertTelegramUser = async (telegramUser: TelegramUser, chatId: number | s
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const appUrl = getAppUrl(req);
+
   if (req.method === 'GET') {
     res.status(200).json({
       status: 'online',
       botTokenConfigured: Boolean(getBotToken()),
-      appUrlConfigured: Boolean(getAppUrl()),
+      appUrlConfigured: Boolean(appUrl),
+      appUrlPreview: appUrl || null,
     });
     return;
   }
@@ -123,7 +144,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const chatId = message?.chat?.id;
   const telegramUser = message?.from;
   const text = (message?.text || '').trim();
-  const appUrl = getAppUrl();
 
   if (!message || !chatId || !telegramUser) {
     res.status(200).send('No actionable message');
@@ -142,14 +162,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (text.startsWith('/start')) {
     const keyboard = appUrl
       ? {
-          inline_keyboard: [[{ text: 'Open App', web_app: { url: appUrl } }]],
+          inline_keyboard: [[{ text: '🚀 فتح الميني آب', web_app: { url: appUrl } }]],
         }
       : undefined;
 
     await sendMessage(
       botToken,
       chatId,
-      `Hello ${telegramUser.first_name || 'Friend'}.\n\nUse the button below to open Tliker.`,
+      `أهلًا ${telegramUser.first_name || 'صديق'}.\n\nاضغط الزر لفتح الميني آب.`,
       keyboard,
     );
   }
