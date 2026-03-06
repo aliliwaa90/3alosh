@@ -15,7 +15,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 type UserRecord = Record<string, any>;
 type UserDoc = UserRecord & { _id: string };
@@ -69,6 +69,59 @@ const listUsers = async (): Promise<UserRecord[]> => {
 
   const db = readDb();
   return Object.values(db.users || {});
+};
+
+const normalizeChatId = (value: unknown): string | number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || !/^-?\d+$/.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
+  }
+
+  return null;
+};
+
+const getBroadcastTargetIds = (users: UserRecord[]): Array<string | number> => {
+  const results: Array<string | number> = [];
+  const seen = new Set<string>();
+
+  const add = (value: unknown) => {
+    const normalized = normalizeChatId(value);
+    if (normalized === null) return;
+    const key = String(normalized);
+    if (seen.has(key)) return;
+    seen.add(key);
+    results.push(normalized);
+  };
+
+  for (const user of users) {
+    add(user.chatId);
+
+    if (user.chatId === undefined || user.chatId === null || user.chatId === '') {
+      add(user.id);
+    }
+  }
+
+  return results;
+};
+
+const parseBase64Image = (imageData: string): { buffer: Buffer; mimeType: string } | null => {
+  const match = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return null;
+
+  try {
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length) return null;
+    return { buffer, mimeType: match[1].toLowerCase() };
+  } catch {
+    return null;
+  }
 };
 
 const getUserById = async (id: string): Promise<UserRecord | null> => {
@@ -215,24 +268,51 @@ if (token) {
 
 // Broadcast API
 app.post('/api/admin/broadcast', async (req, res) => {
-  const { message } = req.body;
-  if (!message || !bot) return res.status(400).json({ error: 'Message required or bot not active' });
+  const message = String(req.body?.message || '').trim();
+  const imageData = typeof req.body?.imageData === 'string' ? req.body.imageData.trim() : '';
+  if ((!message && !imageData) || !bot) {
+    return res.status(400).json({ error: 'Message or image required, and bot must be active' });
+  }
 
   const users = await listUsers();
+  const targetChatIds = getBroadcastTargetIds(users);
   let sentCount = 0;
+  let failedCount = 0;
 
-  for (const user of users) {
-    if (user.chatId) {
-      try {
-        await bot.sendMessage(user.chatId, message);
-        sentCount++;
-      } catch (e) {
-        console.error(`Failed to send to ${user.chatId}`, e);
+  for (const chatId of targetChatIds) {
+    try {
+      if (imageData) {
+        if (/^https?:\/\//i.test(imageData)) {
+          await bot.sendPhoto(chatId, imageData, message ? { caption: message.slice(0, 1024) } : undefined);
+        } else {
+          const parsedImage = parseBase64Image(imageData);
+          if (!parsedImage) {
+            failedCount++;
+            continue;
+          }
+          await bot.sendPhoto(chatId, parsedImage.buffer, {
+            caption: message ? message.slice(0, 1024) : undefined,
+            filename: 'broadcast-image',
+            contentType: parsedImage.mimeType,
+          });
+        }
+      } else {
+        await bot.sendMessage(chatId, message);
       }
+      sentCount++;
+    } catch (e) {
+      failedCount++;
+      console.error(`Failed to send to ${chatId}`, e);
     }
   }
 
-  res.json({ success: true, sentCount });
+  res.json({
+    success: true,
+    sentCount,
+    failedCount,
+    totalUsersWithChatId: targetChatIds.length,
+    mode: imageData ? 'photo' : 'text',
+  });
 });
 
 // Get User Data

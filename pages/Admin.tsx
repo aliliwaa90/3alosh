@@ -32,6 +32,9 @@ const Admin: React.FC = () => {
   // Broadcast State
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState('');
+  const [broadcastImageData, setBroadcastImageData] = useState('');
+  const [broadcastImagePreview, setBroadcastImagePreview] = useState('');
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
 
   const handleAdminLogout = () => {
       if (typeof window !== 'undefined') {
@@ -57,29 +60,67 @@ const Admin: React.FC = () => {
 
   // Handler: Broadcast
   const handleBroadcast = async () => {
-      if (!broadcastMsg) return;
+      if (!broadcastMsg && !broadcastImageData) return;
+      setIsBroadcasting(true);
       setBroadcastStatus('جاري الإرسال...');
       try {
         const adminToken = typeof window !== 'undefined' ? window.sessionStorage.getItem('admin_token') : '';
         const res = await fetch('/api/admin/broadcast', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {})
           },
-          body: JSON.stringify({ message: broadcastMsg })
+          body: JSON.stringify({
+            message: broadcastMsg,
+            imageData: broadcastImageData || undefined
+          })
         });
-        const data = await res.json();
-        if (data.success) {
-          setBroadcastStatus(`تم الإرسال إلى ${data.sentCount} مستخدم!`);
+
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          const failedCount = Number(data.failedCount || 0);
+          const failedText = failedCount > 0 ? ` | فشل: ${failedCount}` : '';
+          setBroadcastStatus(`تم الإرسال إلى ${data.sentCount} مستخدم${failedText}`);
           setBroadcastMsg('');
+          setBroadcastImageData('');
+          setBroadcastImagePreview('');
         } else {
-          setBroadcastStatus('فشل الإرسال: ' + data.error);
+          setBroadcastStatus('فشل الإرسال: ' + (data.error || 'Unknown error'));
         }
-      } catch (e) {
-        setBroadcastStatus('خطأ في الإرسال');
+      } catch {
+        setBroadcastStatus('تعذر إرسال الطلب');
+      } finally {
+        setIsBroadcasting(false);
+        setTimeout(() => setBroadcastStatus(''), 4000);
       }
-      setTimeout(() => setBroadcastStatus(''), 3000);
+  };
+
+  const handleBroadcastImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const maxFileSize = 3 * 1024 * 1024;
+      if (file.size > maxFileSize) {
+          setBroadcastStatus('حجم الصورة يجب أن يكون أقل من 3MB');
+          e.target.value = '';
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+          const result = reader.result;
+          if (typeof result === 'string') {
+              setBroadcastImageData(result);
+              setBroadcastImagePreview(result);
+          }
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const clearBroadcastImage = () => {
+      setBroadcastImageData('');
+      setBroadcastImagePreview('');
   };
 
   // Handler: Add Task
@@ -293,15 +334,39 @@ const Admin: React.FC = () => {
                           placeholder="اكتب رسالتك هنا..."
                           className="w-full bg-black/40 p-4 rounded-xl text-sm text-white border border-white/5 h-32 mb-4 outline-none focus:border-primary/50"
                       ></textarea>
+
+                      <div className="space-y-2 mb-4">
+                          <label className="text-[10px] text-slate-400 font-black">إرفاق صورة (اختياري)</label>
+                          <div className="flex items-center gap-3">
+                              <label className="flex-1 cursor-pointer bg-black/40 border border-white/10 rounded-lg p-3 flex items-center justify-center gap-2 hover:bg-white/5 transition-all">
+                                  <UploadCloud size={16} className="text-primary"/>
+                                  <span className="text-[10px] text-white font-bold">تحميل صورة من الجهاز</span>
+                                  <input type="file" accept="image/*" onChange={handleBroadcastImageUpload} className="hidden" />
+                              </label>
+                              {broadcastImagePreview && (
+                                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/10">
+                                      <img src={broadcastImagePreview} alt="Broadcast" className="w-full h-full object-cover" />
+                                      <button
+                                        type="button"
+                                        onClick={clearBroadcastImage}
+                                        className="absolute top-0 right-0 w-5 h-5 bg-black/80 text-white flex items-center justify-center"
+                                      >
+                                        <X size={10}/>
+                                      </button>
+                                  </div>
+                              )}
+                          </div>
+                          <p className="text-[10px] text-slate-500">الحد الأقصى للصورة: 3MB</p>
+                      </div>
                       
                       <div className="flex justify-between items-center">
                           <p className="text-xs font-bold text-emerald-500">{broadcastStatus}</p>
                           <button 
                               onClick={handleBroadcast}
-                              disabled={!broadcastMsg}
+                              disabled={(!broadcastMsg && !broadcastImageData) || isBroadcasting}
                               className="bg-primary text-black px-6 py-3 rounded-xl font-black text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                              إرسال الآن
+                              {isBroadcasting ? 'جاري الإرسال...' : 'إرسال الآن'}
                           </button>
                       </div>
                   </div>
