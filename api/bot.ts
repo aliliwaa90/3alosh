@@ -37,6 +37,15 @@ interface TelegramUpdate {
 }
 
 type UserDoc = Record<string, any> & { _id: string };
+type StarPaymentDoc = {
+  _id: string;
+  userId: string;
+  productId: string;
+  payload: string;
+  amount: number;
+  currency: string;
+  createdAt: string;
+};
 
 const getBotToken = (): string =>
   (process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || '').trim();
@@ -238,7 +247,7 @@ const processSuccessfulStarsPayment = async (
   if (!db) return false;
 
   try {
-    const payments = db.collection<Record<string, unknown>>('starPayments');
+    const payments = db.collection<StarPaymentDoc>('starPayments');
     const users = db.collection<UserDoc>('users');
     const nowIso = new Date().toISOString();
 
