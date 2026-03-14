@@ -16,6 +16,14 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+// Error handling middleware for JSON parsing
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    console.error('JSON parse error:', err);
+    return res.status(400).json({ error: 'Invalid JSON in request body' });
+  }
+  next();
+});
 
 type UserRecord = Record<string, any>;
 type UserDoc = UserRecord & { _id: string };

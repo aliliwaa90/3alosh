@@ -106,7 +106,16 @@ const Withdraw: React.FC = () => {
 
       console.log('Response status:', response.status);
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        console.error('Failed to parse JSON:', jsonErr);
+        const text = await response.text();
+        console.error('Response text:', text);
+        setError('خطأ: الخادم لم يرسل رد صحيح');
+        return;
+      }
       console.log('Response data:', data);
 
       if (!response.ok) {
@@ -128,7 +137,8 @@ const Withdraw: React.FC = () => {
       }
     } catch (err) {
       console.error('Withdrawal error:', err);
-      setError(`فشل الاتصال بالخادم: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`);
+      const errorMsg = err instanceof Error ? err.message : 'خطأ غير معروف';
+      setError(`فشل الاتصال بالخادم: ${errorMsg}`);
     } finally {
       setIsLoading(false);
     }
