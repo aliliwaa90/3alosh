@@ -5,7 +5,7 @@
       "name": "New User",
       "photo_url": "",
       "username": "",
-      "balance": 1158.5,
+      "balance": 1167.5,
       "energy": 1000,
       "maxEnergy": 1000,
       "referrals": 0,
@@ -18,7 +18,7 @@
       "notificationsEnabled": true,
       "theme": "dark",
       "language": "ar",
-      "lastSeenAt": "2026-03-14T18:12:57.408Z"
+      "lastSeenAt": "2026-03-14T18:28:14.615Z"
     }
   }
 }
