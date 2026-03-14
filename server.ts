@@ -645,14 +645,19 @@ async function startServer() {
   
   // Catch-all route for SPA - MUST be last
   // Catch-all route for Single Page App
-  // Catch-all route for Single Page App (Express 5 compatible)
-  app.get('/:path*', (_req, res) => {
-    if (process.env.NODE_ENV === 'production') {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    } else {
-      // In dev mode, vite handles the SPA routes
-      res.status(404).json({ error: 'Not found' });
+  // Fallback handler for SPA routes (avoid express router path parsing issues)
+  app.use((req, res, next) => {
+    // Only handle GET requests that are not API calls
+    if (req.method !== 'GET' || req.path.startsWith('/api')) {
+      return next();
     }
+
+    if (process.env.NODE_ENV === 'production') {
+      return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    }
+
+    // In dev mode, let Vite handle it
+    return res.status(404).json({ error: 'Not found' });
   });
 
   app.listen(PORT, '0.0.0.0', () => {
