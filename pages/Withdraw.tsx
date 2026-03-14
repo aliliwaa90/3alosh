@@ -54,6 +54,12 @@ const Withdraw: React.FC = () => {
 
     const numAmount = Number(amount);
 
+    if (!user.id) {
+      setError('خطأ: معرّف المستخدم غير متاح');
+      console.error('User ID is missing');
+      return;
+    }
+
     if (numAmount < minimumWithdrawal) {
       setError(`الحد الأدنى للسحب هو ${minimumWithdrawal.toLocaleString()} دينار عراقي`);
       return;
@@ -77,6 +83,12 @@ const Withdraw: React.FC = () => {
     setIsLoading(true);
 
     try {
+      console.log('Sending withdrawal request:', {
+        userId: user.id,
+        amount: numAmount,
+        method,
+      });
+
       const response = await fetch('/api/withdrawals/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -92,10 +104,13 @@ const Withdraw: React.FC = () => {
         }),
       });
 
+      console.log('Response status:', response.status);
+
       const data = await response.json();
+      console.log('Response data:', data);
 
       if (!response.ok) {
-        setError(data.error || 'حدث خطأ في السحب');
+        setError(data.error || 'حدث خطأ في معالجة السحب');
         return;
       }
 
@@ -112,8 +127,8 @@ const Withdraw: React.FC = () => {
         setWithdrawals(refreshData.withdrawals);
       }
     } catch (err) {
-      setError('فشل الاتصال بالخادم');
-      console.error(err);
+      console.error('Withdrawal error:', err);
+      setError(`فشل الاتصال بالخادم: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`);
     } finally {
       setIsLoading(false);
     }

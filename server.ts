@@ -438,13 +438,16 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
   try {
     const { userId, amount, method, bankAccount } = req.body;
 
+    console.log('Withdrawal request received:', { userId, amount, method });
+
     if (!userId || !amount || !method || !bankAccount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      console.log('Missing fields:', { userId: !!userId, amount: !!amount, method: !!method, bankAccount: !!bankAccount });
+      return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
     }
 
     const validMethods = ['zain-cash', 'k-card', 'fib', 'okx', 'binance'];
     if (!validMethods.includes(method)) {
-      return res.status(400).json({ error: 'Invalid payment method' });
+      return res.status(400).json({ error: 'طريقة الدفع غير صحيحة' });
     }
 
     if (amount < 10000) {
@@ -454,8 +457,10 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
     // Check user balance
     let db = readDb();
     const user = db.users[userId];
+    console.log('User found:', !!user, 'User balance:', user?.balance);
+    
     if (!user || user.balance < amount) {
-      return res.status(400).json({ error: 'Insufficient balance' });
+      return res.status(400).json({ error: 'رصيدك غير كافي للسحب' });
     }
 
     // Create withdrawal request
@@ -480,6 +485,7 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
 
     try {
       writeDb(db);
+      console.log('Withdrawal created successfully:', withdrawalId);
     } catch (writeError) {
       console.error('Error writing to database:', writeError);
       return res.status(500).json({ error: 'خطأ في حفظ طلب السحب' });
