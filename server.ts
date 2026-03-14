@@ -646,7 +646,7 @@ async function startServer() {
   // Catch-all route for SPA - MUST be last
   // Catch-all route for Single Page App
   // Catch-all route for Single Page App (Express 5 compatible)
-  app.get('/:path(.*)', (_req, res) => {
+  app.get('/:path*', (_req, res) => {
     if (process.env.NODE_ENV === 'production') {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     } else {
