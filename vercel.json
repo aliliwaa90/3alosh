@@ -1,5 +1,12 @@
 {
   "rewrites": [
+    { "source": "/api/debug/db", "destination": "/api/debug_db" },
+    { "source": "/api/withdrawals/request", "destination": "/api/withdrawals_request" },
+    { "source": "/api/withdrawals/user/:userId", "destination": "/api/withdrawals_user?userId=:userId" },
+    { "source": "/api/admin/stats", "destination": "/api/admin_stats" },
+    { "source": "/api/admin/withdrawals/all", "destination": "/api/admin_withdraw_all" },
+    { "source": "/api/admin/withdrawals/:id/approve", "destination": "/api/admin_withdraw_approve?id=:id" },
+    { "source": "/api/admin/withdrawals/:id/reject", "destination": "/api/admin_withdraw_reject?id=:id" },
     { "source": "/((?!api/.*).*)", "destination": "/index.html" }
   ],
   "functions": {
