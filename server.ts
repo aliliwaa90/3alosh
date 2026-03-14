@@ -6,7 +6,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { getMongoDb, isMongoConfigured } from './lib/mongodb';
+import { getMongoDb, isMongoConfigured, getMongoClient } from './lib/mongodb';
 
 dotenv.config();
 
@@ -17,7 +17,7 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 // Error handling middleware for JSON parsing
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (err instanceof SyntaxError && 'body' in err) {
     console.error('JSON parse error:', err);
     return res.status(400).json({ error: 'Invalid JSON in request body' });
@@ -319,6 +319,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
           }
           await bot.sendPhoto(chatId, parsedImage.buffer, {
             caption: message ? message.slice(0, 1024) : undefined,
+          }, {
             filename: 'broadcast-image',
             contentType: parsedImage.mimeType,
           });
@@ -435,13 +436,32 @@ app.get('/api/leaderboard', async (_req, res) => {
   res.json(leaderboard);
 });
 
+// Debug API - Check DB Connectivity
+app.get('/api/debug/db', async (_req, res) => {
+  const configured = isMongoConfigured();
+  const client = await getMongoClient();
+  const db = await getMongoDb();
+  
+  res.json({
+    configured,
+    connected: !!client,
+    dbName: db?.databaseName || 'N/A',
+    env: {
+      hasUri: !!process.env.MONGODB_URI,
+      node_env: process.env.NODE_ENV
+    }
+  });
+});
+
 // Admin API (Protected by simple secret or session in real app)
 app.get('/api/admin/stats', async (_req, res) => {
   try {
+    console.log('Admin Stats: Fetching statistics...');
     const usersCollection = await getUsersCollection();
     const withdrawalsCollection = await getWithdrawalsCollection();
 
     if (usersCollection && withdrawalsCollection) {
+      console.log('Admin Stats: Using MongoDB');
       const totalUsers = await usersCollection.countDocuments({});
       const pendingWithdrawalsCount = await withdrawalsCollection.countDocuments({ status: 'pending' });
       
@@ -453,6 +473,7 @@ app.get('/api/admin/stats', async (_req, res) => {
       });
     }
 
+    console.log('Admin Stats: MongoDB unavailable, using local fallback');
     const users = await listUsers();
     const db = readDb();
     const withdrawals = db.withdrawals || [];

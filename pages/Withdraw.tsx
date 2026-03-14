@@ -103,7 +103,7 @@ const Withdraw: React.FC = () => {
       }, 2500);
 
     } catch (err) {
-      setError('لا يوجد اتصال بالإنترنت.');
+      setError('فشل الاتصال بالخادم. يرجى التحقق من لوحة تحكم Vercel.');
     } finally {
       setIsLoading(false);
     }

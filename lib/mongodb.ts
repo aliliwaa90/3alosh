@@ -57,21 +57,28 @@ const createClientPromise = (): Promise<MongoClient> => {
   return client.connect();
 };
 
-export const isMongoConfigured = (): boolean => Boolean(uri);
+export const isMongoConfigured = (): boolean => {
+  const hasUri = Boolean(uri);
+  if (!hasUri) console.log('MongoDB: No URI found in environment variables');
+  return hasUri;
+};
 
 export const getMongoClient = async (): Promise<MongoClient | null> => {
   if (!uri) return null;
 
   if (!global.__mongoClientPromise) {
+    console.log('MongoDB: Starting new connection attempt...');
     global.__mongoClientPromise = createClientPromise();
   }
 
   try {
-    return await global.__mongoClientPromise;
+    const client = await global.__mongoClientPromise;
+    console.log('MongoDB: Connection established successfully');
+    return client;
   } catch (error) {
     // Reset cached promise after connection failure so next call can retry.
     global.__mongoClientPromise = undefined;
-    console.error('MongoDB connection failed:', error);
+    console.error('MongoDB: Final connection failure:', error);
     return null;
   }
 };
