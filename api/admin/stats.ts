@@ -35,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           { projection: { usdAmount: 1 } },
         )
         .toArray(),
-      transactions.countDocuments({ type: 'WITHDRAWAL', status: 'PENDING' }),
+      db.collection('withdrawals').countDocuments({ status: 'pending' }),
     ]);
 
     const revenue = txDocs.reduce((sum, item) => {
