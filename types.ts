@@ -24,28 +24,7 @@ export interface UserState {
   notificationsEnabled?: boolean;
 }
 
-export interface P2POffer {
-  id: string;
-  sellerId: string;
-  sellerName: string;
-  amount: number; 
-  priceUsd: number; 
-  status: 'available' | 'pending' | 'completed' | 'disputed' | 'cancelled';
-  paymentMethod: string; 
-  createdAt: number;
-  buyerId?: string;
-  buyerName?: string;
-  paymentProof?: string; 
-  disputeReason?: string;
-}
 
-export interface P2PMessage {
-  id: string;
-  senderId: string;
-  senderName: string;
-  text: string;
-  timestamp: number;
-}
 
 export interface DigitalProduct {
   id: string;
@@ -72,9 +51,7 @@ export interface Task {
 export enum TransactionType {
   DEPOSIT = 'DEPOSIT',
   WITHDRAWAL = 'WITHDRAWAL',
-  PURCHASE = 'PURCHASE',
-  P2P_SELL = 'P2P_SELL',
-  P2P_BUY = 'P2P_BUY'
+  PURCHASE = 'PURCHASE'
 }
 
 export enum TransactionStatus {

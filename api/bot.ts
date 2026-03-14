@@ -117,7 +117,7 @@ const parseStarsPayload = (payload: string): { userId: string; productId: string
   return { userId, productId };
 };
 
-const BOT_DISPLAY_NAME = (process.env.BOT_DISPLAY_NAME || 'TOMi').trim() || 'TOMi';
+const BOT_DISPLAY_NAME = (process.env.BOT_DISPLAY_NAME || 'FBJNKMLBOT').trim() || 'FBJNKMLBOT';
 const DEFAULT_CHANNEL_URL = 'https://t.me/Tleker';
 const DEFAULT_REFERRAL_REWARD_POINTS = 1000;
 

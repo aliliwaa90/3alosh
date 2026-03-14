@@ -1,8 +1,9 @@
-﻿import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { GameProvider } from './context/GameContext';
 import BottomNav from './components/BottomNav';
 import SplashScreen from './components/SplashScreen';
+import DailyWelcomeBonus from './components/DailyWelcomeBonus';
 import { Loader2 } from 'lucide-react';
 
 const Home = React.lazy(() => import('./pages/Home'));
@@ -17,7 +18,6 @@ const Leaderboard = React.lazy(() => import('./pages/Leaderboard'));
 const Challenge = React.lazy(() => import('./pages/Challenge'));
 const LuckWheel = React.lazy(() => import('./pages/LuckWheel'));
 const Profile = React.lazy(() => import('./pages/Profile'));
-const P2P = React.lazy(() => import('./pages/P2P'));
 
 const LoadingFallback = () => (
   <div className="min-h-screen bg-slate-900 flex items-center justify-center z-50">
@@ -127,6 +127,7 @@ const AppShell: React.FC = () => {
   return (
     <div className="font-sans antialiased text-white min-h-screen bg-slate-900">
       <SplashScreen isLoading={showSplash} />
+      <DailyWelcomeBonus />
       {!isTelegram && isDev && (
         <div className="bg-amber-500/20 text-amber-500 text-[10px] font-bold text-center py-1">
           Dev Mode: Running outside Telegram
@@ -137,7 +138,6 @@ const AppShell: React.FC = () => {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/shop" element={<Shop />} />
-          <Route path="/p2p" element={<P2P />} />
           <Route path="/challenge" element={<Challenge />} />
           <Route path="/wheel" element={<LuckWheel />} />
           <Route path="/earn" element={<Earn />} />

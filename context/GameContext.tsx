@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { UserState, Task, Transaction, TransactionType, TransactionStatus, DigitalProduct, P2POffer, PaymentMethod } from '../types';
+import { UserState, Task, Transaction, TransactionType, TransactionStatus, DigitalProduct, PaymentMethod } from '../types';
 
 export const POINTS_PER_DOLLAR = 200000;
 export const EXCHANGE_RATE_USD = 1 / POINTS_PER_DOLLAR;
@@ -174,7 +174,7 @@ const INITIAL_PRODUCTS: DigitalProduct[] = [
 ];
 
 const LOCAL_USER_CACHE_KEY = 'tliker_user_cache_v1';
-const DEFAULT_BOT_USERNAME = 'TOMi';
+const DEFAULT_BOT_USERNAME = 'FBJNKMLBOT';
 
 const getBotUsername = (): string => {
   const fromEnv = (
@@ -219,7 +219,6 @@ interface GameContextType {
   setLanguage: (lang: 'ar' | 'en') => void;
   tasks: Task[];
   transactions: Transaction[];
-  p2pOffers: P2POffer[];
   digitalProducts: DigitalProduct[];
   paymentMethods: PaymentMethod[];
   handleClick: () => boolean;
@@ -228,9 +227,6 @@ interface GameContextType {
   requestDeposit: (usd: number, method: string, txId: string) => Promise<{ success: boolean, message: string }>;
   updateWalletAddress: (addr: string) => void;
   getReferralLink: () => string;
-  createP2POffer: (amount: number, priceUsd: number, method: string) => Promise<{ success: boolean, message: string }>;
-  buyP2POffer: (offerId: string) => Promise<{ success: boolean, message: string }>;
-  cancelP2POffer: (offerId: string) => Promise<{ success: boolean, message: string }>;
   buyProductWithPoints: (productId: string) => Promise<{ success: boolean, message: string }>;
   buyProductWithStars: (productId: string) => Promise<{ success: boolean, message: string }>;
   adminLogin: () => void;
@@ -261,7 +257,6 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isReady, setIsReady] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [p2pOffers, setP2POffers] = useState<P2POffer[]>([]);
   const [digitalProducts, setDigitalProducts] = useState<DigitalProduct[]>(INITIAL_PRODUCTS);
   
   // Debounce refs for API syncing
@@ -659,29 +654,6 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true, message: 'Deposit submitted' };
   };
 
-  const createP2POffer = async (amount: number, priceUsd: number, method: string) => {
-    if (!user || user.balance < amount) return { success: false, message: 'Insufficient balance' };
-    const newOffer: P2POffer = {
-      id: `off_${Date.now()}`, sellerId: user.id, sellerName: user.name || 'User',
-      amount, priceUsd, status: 'available', paymentMethod: method, createdAt: Date.now()
-    };
-    setP2POffers(prev => [newOffer, ...prev]);
-    scheduleSync({ balance: user.balance - amount });
-    return { success: true, message: 'Offer created' };
-  };
-
-  const buyP2POffer = async (offerId: string) => {
-      setP2POffers(prev => prev.map(o => o.id === offerId ? { ...o, status: 'pending', buyerId: user?.id, buyerName: user?.name } as P2POffer : o));
-      return { success: true, message: 'Trade started' };
-  };
-
-  const cancelP2POffer = async (offerId: string) => {
-    const offer = p2pOffers.find(o => o.id === offerId);
-    if (!offer || !user) return { success: false, message: 'Not found' };
-    scheduleSync({ balance: user.balance + offer.amount });
-    setP2POffers(prev => prev.filter(o => o.id !== offerId));
-    return { success: true, message: 'Offer cancelled' };
-  };
 
   const buyProductWithPoints = async (productId: string) => {
     if (!user) return { success: false, message: 'Error' };
@@ -1083,9 +1055,9 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   return (
       <GameContext.Provider value={{
-      user, isReady, lang: user.language || 'ar', t, setLanguage, tasks, transactions, p2pOffers, digitalProducts, paymentMethods,
+      user, isReady, lang: user.language || 'ar', t, setLanguage, tasks, transactions, digitalProducts, paymentMethods,
       handleClick, completeTask, requestWithdrawal, requestDeposit, updateWalletAddress, getReferralLink,
-      createP2POffer, buyP2POffer, cancelP2POffer, buyProductWithPoints, buyProductWithStars, adminLogin, adminLogout, toggleTheme, toggleNotifications,
+      buyProductWithPoints, buyProductWithStars, adminLogin, adminLogout, toggleTheme, toggleNotifications,
       copyReferralLink, fetchReferralsList, referralReward: 1000,
       adminAddTask, adminDeleteTask, adminAddProduct, adminUpdateProduct, adminDeleteProduct, adminProcessTransaction, adminBanUser, adminAdjustUserPoints, adminSetUserPoints,
       startChallenge, resolveChallenge, spinWheel

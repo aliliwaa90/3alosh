@@ -625,6 +625,12 @@ app.patch('/api/admin/withdrawals/:withdrawalId/reject', async (req: express.Req
   }
 });
 
+// API 404 handler (JSON) for unknown /api/* routes
+// This ensures clients do not receive HTML 404 pages that break JSON parsing.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
+
 // --- Vite Middleware (Dev) or Static Files (Prod) ---
 async function startServer() {
   // Register ALL API routes BEFORE static files
