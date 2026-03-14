@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyAdminToken } from '../lib/adminAuth.js';
-import { getMongoDb } from '../lib/mongodb.js';
-import { methodNotAllowed } from '../lib/http.js';
+import { verifyAdminToken } from '../../lib/adminAuth.js';
+import { getMongoDb } from '../../lib/mongodb.js';
+import { methodNotAllowed } from '../../lib/http.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {

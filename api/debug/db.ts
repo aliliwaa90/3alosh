@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getMongoDb, isMongoConfigured, getMongoClient } from '../lib/mongodb.js';
+import { getMongoDb, isMongoConfigured, getMongoClient } from '../../lib/mongodb.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
