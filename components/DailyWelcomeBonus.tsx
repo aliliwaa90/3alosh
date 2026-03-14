@@ -3,7 +3,7 @@ import { useGame } from '../context/GameContext';
 import { Gift, X, Sparkles, Coins } from 'lucide-react';
 
 const DailyWelcomeBonus: React.FC = () => {
-  const { user } = useGame();
+  const { user, updateUser } = useGame();
   const [showModal, setShowModal] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
@@ -33,19 +33,13 @@ const DailyWelcomeBonus: React.FC = () => {
       const now = Date.now();
       const newBalance = user.balance + 100;
       
-      // Update via API
-      await fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: user.id, 
-          balance: newBalance,
-          lastDailyBonusClaim: now
-        })
+      // Update local state + API sync immediately
+      updateUser({
+        balance: newBalance,
+        lastDailyBonusClaim: now
       });
 
-      // Optimistic UI update handled by the backend sync in GameContext eventually,
-      // but we show success animation here immediately
+      // Show success animation immediately
       setClaimed(true);
       
       // Close modal shortly after

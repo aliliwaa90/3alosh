@@ -248,6 +248,7 @@ interface GameContextType {
   startChallenge: (amount: number) => boolean;
   resolveChallenge: (amount: number, result: 'win' | 'loss', multiplier?: number) => void;
   spinWheel: (prize: number) => Promise<void>;
+  updateUser: (updates: Partial<import('../types').UserState>) => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -1060,7 +1061,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       buyProductWithPoints, buyProductWithStars, adminLogin, adminLogout, toggleTheme, toggleNotifications,
       copyReferralLink, fetchReferralsList, referralReward: 1000,
       adminAddTask, adminDeleteTask, adminAddProduct, adminUpdateProduct, adminDeleteProduct, adminProcessTransaction, adminBanUser, adminAdjustUserPoints, adminSetUserPoints,
-      startChallenge, resolveChallenge, spinWheel
+      startChallenge, resolveChallenge, spinWheel, updateUser: scheduleSync
     }}>
       {children}
     </GameContext.Provider>
