@@ -7,7 +7,6 @@
     { "source": "/api/admin/withdrawals/all", "destination": "/api/admin_withdraw_all" },
     { "source": "/api/admin/withdrawals/:id/approve", "destination": "/api/admin_withdraw_approve?id=:id" },
     { "source": "/api/admin/withdrawals/:id/reject", "destination": "/api/admin_withdraw_reject?id=:id" },
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/|logo.png|favicon.ico).*)", "destination": "/index.html" }
   ]
 }
