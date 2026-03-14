@@ -25,20 +25,30 @@ const DB_FILE = path.join(__dirname, 'database.json');
 
 // Initialize DB if not exists
 if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2));
+  fs.writeFileSync(DB_FILE, JSON.stringify({ users: {}, withdrawals: [] }, null, 2));
 }
 
 // Helper to read/write DB
 const readDb = () => {
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    // Ensure withdrawals array exists
+    if (!data.withdrawals) {
+      data.withdrawals = [];
+    }
+    return data;
   } catch (e) {
-    return { users: {} };
+    return { users: {}, withdrawals: [] };
   }
 };
 
 const writeDb = (data: any) => {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error writing database file:', error);
+    throw error;
+  }
 };
 
 const normalizeUser = (doc: UserRecord): UserRecord => {
@@ -421,7 +431,7 @@ app.get('/api/admin/stats', async (_req, res) => {
 });
 
 // --- Withdrawal API Routes ---
-const CONVERSION_RATE = 1; // 1000 Tliker = 1000 IQD
+const CONVERSION_RATE = 1; // 1 Tliker = 1 IQD
 
 // POST: إنشاء طلب سحب جديد
 app.post('/api/withdrawals/request', async (req: express.Request, res: express.Response) => {
@@ -437,8 +447,8 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
       return res.status(400).json({ error: 'Invalid payment method' });
     }
 
-    if (amount < 1000) {
-      return res.status(400).json({ error: 'Minimum withdrawal is 1000 Tliker' });
+    if (amount < 10000) {
+      return res.status(400).json({ error: 'الحد الأدنى للسحب هو 10,000 دينار عراقي' });
     }
 
     // Check user balance
@@ -468,7 +478,12 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
     }
     db.withdrawals.push(withdrawal);
 
-    writeDb(db);
+    try {
+      writeDb(db);
+    } catch (writeError) {
+      console.error('Error writing to database:', writeError);
+      return res.status(500).json({ error: 'خطأ في حفظ طلب السحب' });
+    }
 
     res.json({
       success: true,
@@ -477,7 +492,7 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
     });
   } catch (error) {
     console.error('Withdrawal request error:', error);
-    res.status(500).json({ error: 'Failed to create withdrawal request' });
+    res.status(500).json({ error: 'حدث خطأ في معالجة طلب السحب' });
   }
 });
 
