@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -74,6 +74,17 @@ const getUsersCollection = async () => {
     return db?.collection<UserDoc>('users') || null;
   } catch (error) {
     console.error('MongoDB unavailable, falling back to database.json', error);
+    return null;
+  }
+};
+
+const getWithdrawalsCollection = async () => {
+  if (!isMongoConfigured()) return null;
+  try {
+    const db = await getMongoDb();
+    return db?.collection<Record<string, any>>('withdrawals') || null;
+  } catch (error) {
+    console.error('MongoDB withdrawals collection unavailable', error);
     return null;
   }
 };
@@ -426,16 +437,36 @@ app.get('/api/leaderboard', async (_req, res) => {
 
 // Admin API (Protected by simple secret or session in real app)
 app.get('/api/admin/stats', async (_req, res) => {
-  const users = await listUsers();
-  const db = readDb();
-  const withdrawals = db.withdrawals || [];
-  
-  res.json({
-    totalUsers: users.length,
-    activeUsers: users.length,
-    revenue: 0,
-    pendingWithdrawals: withdrawals.filter((w: any) => w.status === 'pending').length
-  });
+  try {
+    const usersCollection = await getUsersCollection();
+    const withdrawalsCollection = await getWithdrawalsCollection();
+
+    if (usersCollection && withdrawalsCollection) {
+      const totalUsers = await usersCollection.countDocuments({});
+      const pendingWithdrawalsCount = await withdrawalsCollection.countDocuments({ status: 'pending' });
+      
+      return res.json({
+        totalUsers,
+        activeUsers: totalUsers,
+        revenue: 0,
+        pendingWithdrawals: pendingWithdrawalsCount
+      });
+    }
+
+    const users = await listUsers();
+    const db = readDb();
+    const withdrawals = db.withdrawals || [];
+    
+    res.json({
+      totalUsers: users.length,
+      activeUsers: users.length,
+      revenue: 0,
+      pendingWithdrawals: withdrawals.filter((w: any) => w.status === 'pending').length
+    });
+  } catch (error) {
+    console.error('Admin stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch admin stats' });
+  }
 });
 
 // --- Withdrawal API Routes ---
@@ -446,10 +477,7 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
   try {
     const { userId, amount, method, bankAccount } = req.body;
 
-    console.log('Withdrawal request received:', { userId, amount, method });
-
     if (!userId || !amount || !method || !bankAccount) {
-      console.log('Missing fields:', { userId: !!userId, amount: !!amount, method: !!method, bankAccount: !!bankAccount });
       return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
     }
 
@@ -462,21 +490,27 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
       return res.status(400).json({ error: 'الحد الأدنى للسحب هو 10,000 دينار عراقي' });
     }
 
-    // Check user balance
-    let db = readDb();
-    const user = db.users[userId];
-    console.log('User found:', !!user, 'User balance:', user?.balance);
-    
-    if (!user || user.balance < amount) {
+    // Check user balance and create withdrawal
+    const usersCollection = await getUsersCollection();
+    const withdrawalsCollection = await getWithdrawalsCollection();
+
+    let user: any = null;
+    if (usersCollection) {
+      user = await usersCollection.findOne({ _id: userId });
+    } else {
+      const db = readDb();
+      user = db.users[userId];
+    }
+
+    if (!user || (user.balance || 0) < amount) {
       return res.status(400).json({ error: 'رصيدك غير كافي للسحب' });
     }
 
-    // Create withdrawal request
     const withdrawalId = `wd_${Date.now()}`;
     const withdrawal = {
       id: withdrawalId,
       userId,
-      userName: user.name || user.username,
+      userName: user.name || user.username || 'User',
       amount,
       iqdAmount: Math.floor(amount * CONVERSION_RATE),
       status: 'pending',
@@ -486,17 +520,15 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
       timestamp: Date.now(),
     };
 
-    if (!db.withdrawals) {
-      db.withdrawals = [];
-    }
-    db.withdrawals.push(withdrawal);
-
-    try {
+    if (withdrawalsCollection) {
+      // Save in MongoDB
+      await withdrawalsCollection.insertOne({ _id: withdrawalId as any, ...withdrawal });
+    } else {
+      // Fallback to local JSON
+      const db = readDb();
+      if (!db.withdrawals) db.withdrawals = [];
+      db.withdrawals.push(withdrawal);
       writeDb(db);
-      console.log('Withdrawal created successfully:', withdrawalId);
-    } catch (writeError) {
-      console.error('Error writing to database:', writeError);
-      return res.status(500).json({ error: 'خطأ في حفظ طلب السحب' });
     }
 
     res.json({
@@ -514,11 +546,22 @@ app.post('/api/withdrawals/request', async (req: express.Request, res: express.R
 app.get('/api/withdrawals/user/:userId', async (req: express.Request, res: express.Response) => {
   try {
     const { userId } = req.params;
-    const db = readDb();
+    const withdrawalsCollection = await getWithdrawalsCollection();
 
-    const userWithdrawals = (db.withdrawals || []).filter(
-      (w: any) => w.userId === userId
-    ).sort((a: any, b: any) => b.timestamp - a.timestamp);
+    let userWithdrawals: any[] = [];
+    if (withdrawalsCollection) {
+      userWithdrawals = await withdrawalsCollection.find({ userId: userId as any }).toArray();
+      // Normalize _id to id
+      userWithdrawals = userWithdrawals.map(w => {
+        const { _id, ...rest } = w;
+        return { ...rest, id: rest.id || String(_id) };
+      });
+    } else {
+      const db = readDb();
+      userWithdrawals = (db.withdrawals || []).filter((w: any) => w.userId === userId);
+    }
+
+    userWithdrawals.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
     res.json({
       success: true,
@@ -533,17 +576,28 @@ app.get('/api/withdrawals/user/:userId', async (req: express.Request, res: expre
 // GET: جميع طلبات السحب (للإدارة)
 app.get('/api/admin/withdrawals/all', async (_req: express.Request, res: express.Response) => {
   try {
-    const db = readDb();
-    const withdrawals = (db.withdrawals || []).sort(
-      (a: any, b: any) => b.timestamp - a.timestamp
-    );
+    const withdrawalsCollection = await getWithdrawalsCollection();
+
+    let withdrawals: any[] = [];
+    if (withdrawalsCollection) {
+      withdrawals = await withdrawalsCollection.find({}).toArray();
+      withdrawals = withdrawals.map(w => {
+        const { _id, ...rest } = w;
+        return { ...rest, id: rest.id || String(_id) };
+      });
+    } else {
+      const db = readDb();
+      withdrawals = db.withdrawals || [];
+    }
+
+    withdrawals.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
 
     res.json({
       success: true,
       withdrawals,
       total: withdrawals.length,
       pending: withdrawals.filter((w: any) => w.status === 'pending').length,
-      completed: withdrawals.filter((w: any) => w.status === 'completed').length,
+      completed: withdrawals.filter((w: any) => w.status === 'completed' || w.status === 'approved').length,
       rejected: withdrawals.filter((w: any) => w.status === 'rejected').length,
     });
   } catch (error) {
@@ -558,34 +612,50 @@ app.patch('/api/admin/withdrawals/:withdrawalId/approve', async (req: express.Re
     const { withdrawalId } = req.params;
     const { adminNotes } = req.body;
 
-    let db = readDb();
-    const withdrawalIndex = (db.withdrawals || []).findIndex(
-      (w: any) => w.id === withdrawalId
-    );
+    const withdrawalsCollection = await getWithdrawalsCollection();
+    const usersCollection = await getUsersCollection();
 
-    if (withdrawalIndex === -1) {
-      return res.status(404).json({ error: 'Withdrawal not found' });
+    let withdrawal: any = null;
+    let db: any = null;
+
+    if (withdrawalsCollection) {
+      withdrawal = await withdrawalsCollection.findOne({ _id: withdrawalId as any });
+    } else {
+      db = readDb();
+      withdrawal = (db.withdrawals || []).find((w: any) => w.id === withdrawalId);
     }
 
-    const withdrawal = db.withdrawals[withdrawalIndex];
+    if (!withdrawal) {
+      return res.status(404).json({ error: 'Withdrawal not found' });
+    }
 
     withdrawal.status = 'completed';
     withdrawal.approvedAt = new Date().toISOString();
     if (adminNotes) withdrawal.adminNotes = adminNotes;
 
-    const user = db.users[withdrawal.userId];
-    if (user) {
-      user.balance -= withdrawal.amount;
+    // Deduct from user balance
+    if (usersCollection) {
+      await usersCollection.updateOne(
+        { _id: withdrawal.userId },
+        { $inc: { balance: -withdrawal.amount } }
+      );
+    } else if (db && db.users[withdrawal.userId]) {
+      db.users[withdrawal.userId].balance -= withdrawal.amount;
     }
 
-    db.withdrawals[withdrawalIndex] = withdrawal;
-    writeDb(db);
+    // Update withdrawal status
+    if (withdrawalsCollection) {
+      await withdrawalsCollection.updateOne(
+        { _id: withdrawalId as any },
+        { $set: withdrawal }
+      );
+    } else {
+      const idx = db.withdrawals.findIndex((w: any) => w.id === withdrawalId);
+      db.withdrawals[idx] = withdrawal;
+      writeDb(db);
+    }
 
-    res.json({
-      success: true,
-      withdrawal,
-      message: 'تم الموافقة على السحب بنجاح',
-    });
+    res.json({ success: true, withdrawal, message: 'تم الموافقة على السحب بنجاح' });
   } catch (error) {
     console.error('Approve withdrawal error:', error);
     res.status(500).json({ error: 'Failed to approve withdrawal' });
@@ -598,27 +668,26 @@ app.patch('/api/admin/withdrawals/:withdrawalId/reject', async (req: express.Req
     const { withdrawalId } = req.params;
     const { rejectionReason } = req.body;
 
-    let db = readDb();
-    const withdrawalIndex = (db.withdrawals || []).findIndex(
-      (w: any) => w.id === withdrawalId
-    );
+    const withdrawalsCollection = await getWithdrawalsCollection();
 
-    if (withdrawalIndex === -1) {
-      return res.status(404).json({ error: 'Withdrawal not found' });
+    if (withdrawalsCollection) {
+      await withdrawalsCollection.updateOne(
+        { _id: withdrawalId as any },
+        { $set: { status: 'rejected', rejectionReason: rejectionReason || '' } }
+      );
+    } else {
+      const db = readDb();
+      const idx = (db.withdrawals || []).findIndex((w: any) => w.id === withdrawalId);
+      if (idx !== -1) {
+        db.withdrawals[idx].status = 'rejected';
+        if (rejectionReason) db.withdrawals[idx].rejectionReason = rejectionReason;
+        writeDb(db);
+      } else {
+        return res.status(404).json({ error: 'Withdrawal not found' });
+      }
     }
 
-    const withdrawal = db.withdrawals[withdrawalIndex];
-    withdrawal.status = 'rejected';
-    if (rejectionReason) withdrawal.rejectionReason = rejectionReason;
-
-    db.withdrawals[withdrawalIndex] = withdrawal;
-    writeDb(db);
-
-    res.json({
-      success: true,
-      withdrawal,
-      message: 'تم رفض طلب السحب',
-    });
+    res.json({ success: true, message: 'تم رفض طلب السحب' });
   } catch (error) {
     console.error('Reject withdrawal error:', error);
     res.status(500).json({ error: 'Failed to reject withdrawal' });
