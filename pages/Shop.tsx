@@ -115,6 +115,12 @@ const Shop: React.FC = () => {
                         <TrendingUp size={12} />
                         <span className="text-[10px] font-black">{product.earningRate} pts/s</span>
                       </div>
+                      {product.allowStars && product.priceStars > 0 && (
+                        <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gradient-to-r from-amber-400/20 to-yellow-300/20 border border-amber-300/30 text-amber-200 mb-2">
+                          <Star size={11} className="fill-amber-200" />
+                          <span className="text-[10px] font-black">{product.priceStars} Telegram Stars</span>
+                        </div>
+                      )}
                       <p className="text-slate-500 text-[10px] font-bold line-clamp-2">{product.description}</p>
                     </div>
 
@@ -143,10 +149,10 @@ const Shop: React.FC = () => {
                           <button
                             onClick={() => handleBuyStars(product.id)}
                             disabled={loadingStars}
-                            className="w-full h-11 rounded-xl font-black text-[10px] transition-all flex items-center justify-center gap-2 bg-sky-500/15 text-sky-300 border border-sky-400/30 active:scale-95 disabled:opacity-50"
+                            className="w-full h-11 rounded-xl font-black text-[10px] transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400/20 to-yellow-300/20 text-amber-200 border border-amber-300/30 active:scale-95 disabled:opacity-50"
                           >
-                            <Star size={14} />
-                            {loadingStars ? '...' : `Buy with Stars: ${product.priceStars}`}
+                            <Star size={14} className="fill-amber-200" />
+                            {loadingStars ? '...' : `Buy with Telegram Stars: ${product.priceStars}`}
                           </button>
                         )}
                       </div>

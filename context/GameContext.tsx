@@ -15,7 +15,7 @@ const TRANSLATIONS = {
     theme_dark: "داكن", theme_light: "فاتح",
     level: "مستوى",
     total_points: "إجمالي النقاط المكتسبة",
-    tap_value: "+1.5",
+    tap_value: "+0.3",
     profile: "الملف الشخصي",
     leaderboard: "لوحة الشرف",
     reward_center: "مركز المكافآت",
@@ -93,7 +93,7 @@ const TRANSLATIONS = {
     theme_dark: "Dark", theme_light: "Light",
     level: "Level",
     total_points: "Total Points Earned",
-    tap_value: "+1.5",
+    tap_value: "+0.3",
     profile: "Profile",
     leaderboard: "Leaderboard",
     reward_center: "Reward Center",
@@ -174,7 +174,7 @@ const INITIAL_PRODUCTS: DigitalProduct[] = [
 ];
 
 const LOCAL_USER_CACHE_KEY = 'tliker_user_cache_v1';
-const DEFAULT_BOT_USERNAME = 'FBJNKMLBOT';
+const DEFAULT_BOT_USERNAME = 'TOMi';
 
 const getBotUsername = (): string => {
   const fromEnv = (
@@ -240,12 +240,15 @@ interface GameContextType {
   copyReferralLink: () => void;
   fetchReferralsList: () => Promise<UserState[]>;
   referralReward: number;
-  adminAddTask: (task: Task) => void;
-  adminDeleteTask: (id: string) => void;
-  adminAddProduct: (product: DigitalProduct) => void;
-  adminDeleteProduct: (id: string) => void;
+  adminAddTask: (task: Task) => Promise<{ success: boolean, message: string }>;
+  adminDeleteTask: (id: string) => Promise<{ success: boolean, message: string }>;
+  adminAddProduct: (product: DigitalProduct) => Promise<{ success: boolean, message: string }>;
+  adminUpdateProduct: (id: string, updates: Partial<DigitalProduct>) => Promise<{ success: boolean, message: string }>;
+  adminDeleteProduct: (id: string) => Promise<{ success: boolean, message: string }>;
   adminProcessTransaction: (id: string, status: TransactionStatus) => void;
-  adminBanUser: (id: string, isBanned: boolean) => void;
+  adminBanUser: (id: string, isBanned: boolean) => Promise<{ success: boolean, message: string }>;
+  adminAdjustUserPoints: (id: string, pointsDelta: number) => Promise<{ success: boolean, message: string }>;
+  adminSetUserPoints: (id: string, points: number) => Promise<{ success: boolean, message: string }>;
   startChallenge: (amount: number) => boolean;
   resolveChallenge: (amount: number, result: 'win' | 'loss', multiplier?: number) => void;
   spinWheel: (prize: number) => Promise<void>;
@@ -269,11 +272,67 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     { id: 'm1', name: 'Zain Cash', accountNumber: '07800000000', recipientName: 'Tliker Official' }
   ]);
 
+  const fetchCatalog = async () => {
+    try {
+      const res = await fetch('/api/catalog');
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+
+      if (Array.isArray(data?.products)) {
+        setDigitalProducts(data.products as DigitalProduct[]);
+      }
+
+      if (Array.isArray(data?.tasks)) {
+        setTasks(data.tasks as Task[]);
+      }
+    } catch {
+      // Keep local fallback data when catalog API is unavailable.
+    }
+  };
+
+  useEffect(() => {
+    fetchCatalog();
+
+    if (typeof window === 'undefined') return;
+
+    const intervalId = window.setInterval(() => {
+      void fetchCatalog();
+    }, 30000);
+
+    const handleWindowFocus = () => {
+      void fetchCatalog();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void fetchCatalog();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // --- Initialization ---
   useEffect(() => {
     const initUser = async () => {
       // 1. Get Telegram User Data
       const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      const telegramPhotoUrl = String(tgUser?.photo_url || '').trim();
+      const tgStartParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+      const urlParams = new URLSearchParams(window.location.search);
+      const startParam = String(
+        tgStartParam ||
+          urlParams.get('start_param') ||
+          urlParams.get('startapp') ||
+          '',
+      ).trim();
       // Fallback for development/browser testing
       const userId = tgUser?.id ? String(tgUser.id) : (localStorage.getItem('debug_user_id') || `u_${Math.random().toString(36).substr(2, 9)}`);
       if (!tgUser?.id) localStorage.setItem('debug_user_id', userId);
@@ -281,6 +340,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const createDefaultUser = (): UserState => ({
         id: userId,
         name: tgUser?.first_name || 'New User',
+        photo_url: telegramPhotoUrl,
         username: tgUser?.username || '',
         balance: 1000,
         energy: 1000,
@@ -300,16 +360,30 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       let resolvedUser: UserState | null = null;
 
       try {
-        const res = await fetch(`/api/user/${userId}`);
+        const res = await fetch(`/api/user/${userId}?includeReferrals=1&limit=1`);
         if (res.ok) {
             const data = await res.json();
-            resolvedUser = { ...createDefaultUser(), ...data, role: 'user' };
+            const referralsCount = Number(data?.referralsCount);
+            const serverPhotoUrl = String(data?.photo_url || '').trim();
+            const effectivePhotoUrl = serverPhotoUrl || telegramPhotoUrl;
+            resolvedUser = {
+              ...createDefaultUser(),
+              ...data,
+              ...(effectivePhotoUrl ? { photo_url: effectivePhotoUrl } : {}),
+              ...(Number.isFinite(referralsCount)
+                ? { referrals: Math.max(0, Math.floor(referralsCount)) }
+                : {}),
+              role: 'user',
+            };
         } else {
             resolvedUser = loadCachedUser(userId) || createDefaultUser();
             await fetch('/api/user', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(resolvedUser)
+              body: JSON.stringify({
+                ...resolvedUser,
+                ...(startParam ? { startParam } : {}),
+              })
             }).catch(() => undefined);
         }
       } catch (error) {
@@ -325,6 +399,20 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       applyTheme(resolvedUser.theme || 'dark');
       saveCachedUser(resolvedUser);
       setIsReady(true);
+
+      // Keep profile basics fresh for referrals and admin user list.
+      void fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: resolvedUser.id,
+          name: resolvedUser.name || 'User',
+          username: resolvedUser.username || '',
+          photo_url: telegramPhotoUrl || resolvedUser.photo_url || '',
+          lastSeenAt: new Date().toISOString(),
+          ...(startParam ? { startParam } : {}),
+        }),
+      }).catch(() => undefined);
     };
 
     initUser();
@@ -335,6 +423,75 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       saveCachedUser(user);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const userId = String(user.id);
+    const refreshReferralCount = async () => {
+      try {
+        const res = await fetch(`/api/user/${encodeURIComponent(userId)}?includeReferrals=1&limit=1`);
+        if (!res.ok) return;
+
+        const data = await res.json().catch(() => ({}));
+        const referralsCount = Number(data?.referralsCount);
+        const serverBalance = Number(data?.balance);
+
+        const safeCount = Number.isFinite(referralsCount)
+          ? Math.max(0, Math.floor(referralsCount))
+          : null;
+        const safeBalance = Number.isFinite(serverBalance)
+          ? Math.max(0, Math.floor(serverBalance))
+          : null;
+        setUser((prev) => {
+          if (!prev || String(prev.id) !== userId) return prev;
+
+          const nextReferrals = safeCount === null ? Math.max(0, Math.floor(Number(prev.referrals || 0))) : safeCount;
+          const nextBalance = safeBalance === null ? Math.max(0, Math.floor(Number(prev.balance || 0))) : safeBalance;
+
+          if (
+            Math.floor(Number(prev.referrals || 0)) === nextReferrals &&
+            Math.floor(Number(prev.balance || 0)) === nextBalance
+          ) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            referrals: nextReferrals,
+            balance: nextBalance,
+          };
+        });
+      } catch {
+        // Ignore refresh failures; next cycle will retry.
+      }
+    };
+
+    void refreshReferralCount();
+
+    const intervalId = window.setInterval(() => {
+      void refreshReferralCount();
+    }, 30000);
+
+    const handleFocus = () => {
+      void refreshReferralCount();
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        void refreshReferralCount();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user?.id]);
 
   // --- Sync State to API (Debounced) ---
   const scheduleSync = (updates: Partial<UserState>) => {
@@ -531,6 +688,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const prod = digitalProducts.find(p => p.id === productId);
     if (!prod) return { success: false, message: 'Product not found' };
     if (user.ownedProducts.includes(productId)) return { success: false, message: 'Product already owned' };
+    if (!prod.allowPoints || prod.pricePoints <= 0) return { success: false, message: 'Points purchase is disabled for this product' };
     if (user.balance < prod.pricePoints) return { success: false, message: 'Insufficient balance' };
     scheduleSync({ 
         balance: user.balance - prod.pricePoints, 
@@ -539,15 +697,36 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true, message: 'Product purchased' };
   };
 
-  const refreshUserFromServer = async (userId: string) => {
+  const refreshUserFromServer = async (userId: string): Promise<UserState | null> => {
     try {
-      const res = await fetch(`/api/user/${userId}`);
-      if (!res.ok) return;
+      const res = await fetch(`/api/user/${userId}?syncPurchases=1`);
+      if (!res.ok) return null;
       const serverUser = await res.json();
       setUser(prev => (prev ? { ...prev, ...serverUser, role: prev.role } : prev));
+      return serverUser as UserState;
     } catch {
       // Ignore refresh errors.
+      return null;
     }
+  };
+
+  const waitForProductActivation = async (
+    userId: string,
+    productId: string,
+    attempts: number = 8,
+    delayMs: number = 1400,
+  ): Promise<boolean> => {
+    for (let i = 0; i < attempts; i++) {
+      const serverUser = await refreshUserFromServer(userId);
+      if (Array.isArray(serverUser?.ownedProducts) && serverUser.ownedProducts.includes(productId)) {
+        return true;
+      }
+
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return false;
   };
 
   const buyProductWithStars = async (productId: string) => {
@@ -571,9 +750,6 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         body: JSON.stringify({
           userId: user.id,
           productId: prod.id,
-          title: prod.name,
-          description: prod.description,
-          starsAmount: Math.floor(prod.priceStars),
         }),
       });
 
@@ -586,17 +762,28 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         tg.openInvoice(data.invoiceLink as string, (status: string) => resolve(status || 'unknown'));
       });
 
-      if (invoiceStatus !== 'paid') {
-        if (invoiceStatus === 'cancelled') {
-          return { success: false, message: 'Payment was cancelled' };
-        }
-        return { success: false, message: `Payment status: ${invoiceStatus}` };
+      if (invoiceStatus === 'cancelled') {
+        return { success: false, message: 'Payment was cancelled' };
       }
 
-      // Payment is confirmed by Telegram; refresh user to pull updated owned products from backend.
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      await refreshUserFromServer(user.id);
-      return { success: true, message: 'Stars payment completed successfully' };
+      if (invoiceStatus === 'paid') {
+        const activated = await waitForProductActivation(String(user.id), prod.id, 9, 1300);
+        if (activated) {
+          return { success: true, message: 'Stars payment completed successfully' };
+        }
+        return { success: true, message: 'Payment received. Product activation may take a few seconds.' };
+      }
+
+      // Telegram sometimes reports pending/failed before backend activation completes.
+      const activatedAfterDelay = await waitForProductActivation(String(user.id), prod.id, 6, 1500);
+      if (activatedAfterDelay) {
+        return { success: true, message: 'Stars payment completed successfully' };
+      }
+
+      if (invoiceStatus === 'pending') {
+        return { success: false, message: 'Payment is pending. Please wait and check again.' };
+      }
+      return { success: false, message: `Payment status: ${invoiceStatus}` };
     } catch {
       return { success: false, message: 'Unable to start Stars payment' };
     }
@@ -627,6 +814,22 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const userId = user?.id ? String(user.id) : '';
     return `https://t.me/${botUsername}?start=ref_${encodeURIComponent(userId)}`;
   };
+
+  const getAdminRequestHeaders = (): Record<string, string> => {
+    const adminToken = typeof window !== 'undefined' ? window.sessionStorage.getItem('admin_token') : '';
+    return {
+      'Content-Type': 'application/json',
+      ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+    };
+  };
+
+  const parseApiErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+    const data = await response.json().catch(() => ({}));
+    if (data && typeof data.error === 'string' && data.error.trim()) {
+      return data.error;
+    }
+    return fallback;
+  };
   
   // Admin role is session-only and should not be persisted to user profile.
   const adminLogin = () => setUser(prev => (prev ? { ...prev, role: 'admin' } : null));
@@ -635,21 +838,245 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const copyReferralLink = () => { navigator.clipboard.writeText(getReferralLink()); };
   
   const fetchReferralsList = async () => {
-      // Mock implementation for now
-      if (!user) return [];
-      return [];
+      if (!user?.id) return [];
+
+      try {
+        const params = new URLSearchParams({
+          includeReferrals: '1',
+          limit: '200',
+        });
+        const res = await fetch(`/api/user/${encodeURIComponent(String(user.id))}?${params.toString()}`);
+        if (!res.ok) return [];
+
+        const data = await res.json().catch(() => ({}));
+        const rows = Array.isArray(data?.referrals) ? data.referrals : [];
+
+        return rows
+          .map((row: any): UserState | null => {
+            const id = String(row?.id || '').trim();
+            if (!id) return null;
+
+            const createdAt =
+              typeof row?.createdAt === 'string' && row.createdAt
+                ? row.createdAt
+                : new Date().toISOString();
+
+            return {
+              id,
+              name: typeof row?.name === 'string' && row.name ? row.name : 'User',
+              username: typeof row?.username === 'string' ? row.username : '',
+              photo_url: typeof row?.photo_url === 'string' ? row.photo_url : '',
+              balance: 0,
+              energy: 0,
+              maxEnergy: 0,
+              referrals: 0,
+              joinDate:
+                typeof row?.joinDate === 'string' && row.joinDate
+                  ? row.joinDate
+                  : new Date(createdAt).toLocaleDateString('en-US'),
+              walletAddress: '',
+              role: 'user',
+              isBanned: false,
+              ownedProducts: [],
+              completedTaskIds: [],
+              language: 'ar',
+              theme: 'dark',
+              notificationsEnabled: true,
+            };
+          })
+          .filter((item: UserState | null): item is UserState => Boolean(item));
+      } catch {
+        return [];
+      }
   };
 
-  // Admin Stubs (Should be connected to Firestore in full implementation)
-  const adminAddTask = (task: Task) => setTasks(prev => [...prev, task]);
-  const adminDeleteTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id));
-  const adminAddProduct = (product: DigitalProduct) => setDigitalProducts(prev => [...prev, product]);
-  const adminDeleteProduct = (id: string) => setDigitalProducts(prev => prev.filter(p => p.id !== id));
+  const adminAddTask = async (task: Task) => {
+    try {
+      const res = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: getAdminRequestHeaders(),
+        body: JSON.stringify(task),
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: await parseApiErrorMessage(res, 'Failed to add task'),
+        };
+      }
+
+      await fetchCatalog();
+      return { success: true, message: 'Task created successfully' };
+    } catch {
+      return { success: false, message: 'Unable to create task' };
+    }
+  };
+
+  const adminDeleteTask = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/tasks?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAdminRequestHeaders(),
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: await parseApiErrorMessage(res, 'Failed to delete task'),
+        };
+      }
+
+      await fetchCatalog();
+      return { success: true, message: 'Task deleted successfully' };
+    } catch {
+      return { success: false, message: 'Unable to delete task' };
+    }
+  };
+
+  const adminAddProduct = async (product: DigitalProduct) => {
+    try {
+      const res = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: getAdminRequestHeaders(),
+        body: JSON.stringify(product),
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: await parseApiErrorMessage(res, 'Failed to add product'),
+        };
+      }
+
+      await fetchCatalog();
+      return { success: true, message: 'Product published successfully' };
+    } catch {
+      return { success: false, message: 'Unable to publish product' };
+    }
+  };
+
+  const adminUpdateProduct = async (id: string, updates: Partial<DigitalProduct>) => {
+    try {
+      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: getAdminRequestHeaders(),
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: await parseApiErrorMessage(res, 'Failed to update product'),
+        };
+      }
+
+      await fetchCatalog();
+      return { success: true, message: 'Product updated successfully' };
+    } catch {
+      return { success: false, message: 'Unable to update product' };
+    }
+  };
+
+  const adminDeleteProduct = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAdminRequestHeaders(),
+      });
+
+      if (!res.ok) {
+        return {
+          success: false,
+          message: await parseApiErrorMessage(res, 'Failed to delete product'),
+        };
+      }
+
+      await fetchCatalog();
+      return { success: true, message: 'Product deleted successfully' };
+    } catch {
+      return { success: false, message: 'Unable to delete product' };
+    }
+  };
+
   const adminProcessTransaction = (id: string, status: TransactionStatus) => {
       setTransactions(prev => prev.map(t => t.id === id ? { ...t, status } : t));
   };
-  const adminBanUser = (id: string, isBanned: boolean) => {
-      if (user?.id === id) scheduleSync({ isBanned });
+
+  const adminBanUser = async (id: string, isBanned: boolean) => {
+      try {
+        const res = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: getAdminRequestHeaders(),
+          body: JSON.stringify({ isBanned }),
+        });
+
+        if (!res.ok) {
+          return {
+            success: false,
+            message: await parseApiErrorMessage(res, 'Failed to update user ban'),
+          };
+        }
+
+        if (user?.id === id) {
+          setUser(prev => (prev ? { ...prev, isBanned } : prev));
+        }
+
+        return { success: true, message: isBanned ? 'User has been banned' : 'User has been unbanned' };
+      } catch {
+        return { success: false, message: 'Unable to update user ban' };
+      }
+  };
+
+  const adminAdjustUserPoints = async (id: string, pointsDelta: number) => {
+      try {
+        const res = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: getAdminRequestHeaders(),
+          body: JSON.stringify({ pointsDelta }),
+        });
+
+        if (!res.ok) {
+          return {
+            success: false,
+            message: await parseApiErrorMessage(res, 'Failed to update user points'),
+          };
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (user?.id === id && typeof data?.user?.balance === 'number') {
+          setUser(prev => (prev ? { ...prev, balance: data.user.balance } : prev));
+        }
+
+        return { success: true, message: 'User points updated successfully' };
+      } catch {
+        return { success: false, message: 'Unable to update user points' };
+      }
+  };
+
+  const adminSetUserPoints = async (id: string, points: number) => {
+      try {
+        const res = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: getAdminRequestHeaders(),
+          body: JSON.stringify({ points }),
+        });
+
+        if (!res.ok) {
+          return {
+            success: false,
+            message: await parseApiErrorMessage(res, 'Failed to set user points'),
+          };
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (user?.id === id && typeof data?.user?.balance === 'number') {
+          setUser(prev => (prev ? { ...prev, balance: data.user.balance } : prev));
+        }
+
+        return { success: true, message: 'User points set successfully' };
+      } catch {
+        return { success: false, message: 'Unable to set user points' };
+      }
   };
 
   if (!isReady || !user) return <div className="h-screen bg-black flex items-center justify-center text-white">Loading Global Data...</div>;
@@ -660,7 +1087,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       handleClick, completeTask, requestWithdrawal, requestDeposit, updateWalletAddress, getReferralLink,
       createP2POffer, buyP2POffer, cancelP2POffer, buyProductWithPoints, buyProductWithStars, adminLogin, adminLogout, toggleTheme, toggleNotifications,
       copyReferralLink, fetchReferralsList, referralReward: 1000,
-      adminAddTask, adminDeleteTask, adminAddProduct, adminDeleteProduct, adminProcessTransaction, adminBanUser,
+      adminAddTask, adminDeleteTask, adminAddProduct, adminUpdateProduct, adminDeleteProduct, adminProcessTransaction, adminBanUser, adminAdjustUserPoints, adminSetUserPoints,
       startChallenge, resolveChallenge, spinWheel
     }}>
       {children}

@@ -1,0 +1,24 @@
+{
+  "users": {
+    "u_kczcvojge": {
+      "id": "u_kczcvojge",
+      "name": "New User",
+      "photo_url": "",
+      "username": "",
+      "balance": 1158.5,
+      "energy": 1000,
+      "maxEnergy": 1000,
+      "referrals": 0,
+      "joinDate": "3/14/2026",
+      "walletAddress": "",
+      "role": "user",
+      "isBanned": false,
+      "ownedProducts": [],
+      "completedTaskIds": [],
+      "notificationsEnabled": true,
+      "theme": "dark",
+      "language": "ar",
+      "lastSeenAt": "2026-03-14T18:12:57.408Z"
+    }
+  }
+}

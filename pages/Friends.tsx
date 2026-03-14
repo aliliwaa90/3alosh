@@ -104,12 +104,19 @@ const Friends: React.FC = () => {
                   {referralsList.map((refUser, idx) => (
                       <div key={refUser.id || idx} className="w-full bg-slate-900/40 rounded-2xl p-3 border border-white/5 flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-white font-black text-xs border border-white/5">
-                                  {refUser.name ? refUser.name[0].toUpperCase() : 'U'}
+                              <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-white font-black text-xs border border-white/5 overflow-hidden">
+                                  {refUser.photo_url ? (
+                                      <img src={refUser.photo_url} alt={refUser.name || 'User'} className="w-full h-full object-cover" />
+                                  ) : (
+                                      <span>{refUser.name ? refUser.name[0].toUpperCase() : 'U'}</span>
+                                  )}
                               </div>
                               <div>
                                   <h4 className="text-xs font-black text-white mb-0.5 truncate max-w-[120px]">{refUser.name || 'مستكشف جديد'}</h4>
                                   <p className="text-[9px] font-bold text-slate-500">{refUser.joinDate}</p>
+                                  {refUser.username && (
+                                      <p className="text-[9px] font-bold text-primary/80 truncate max-w-[120px]">@{refUser.username}</p>
+                                  )}
                               </div>
                           </div>
                           <div className="px-3 py-1 bg-primary/10 rounded-lg border border-primary/20">

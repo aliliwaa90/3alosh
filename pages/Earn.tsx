@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { CheckCircle, ExternalLink, Calendar, Youtube, Send, Zap, Star, Trophy, ArrowLeftRight } from 'lucide-react';
 import { Task } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 const Earn: React.FC = () => {
   const { tasks, completeTask, user } = useGame();
   const [activeFilter, setActiveFilter] = useState<'all' | 'social' | 'ad'>('all');
+  const navigate = useNavigate();
 
   const filteredTasks = tasks.filter(t => activeFilter === 'all' || t.type === activeFilter);
 
@@ -82,7 +84,7 @@ const Earn: React.FC = () => {
               <h4 className="text-white font-black text-lg mb-2">هل تريد المزيد؟</h4>
               <p className="text-blue-100 text-[10px] font-bold mb-6">شارك رابطك الخاص واربح 1,000 نقطة عن كل صديق ينضم إليك!</p>
               <button 
-                onClick={() => window.location.hash = '#/friends'}
+                onClick={() => navigate('/friends')}
                 className="bg-white text-blue-600 px-8 py-3 rounded-xl font-black text-xs active:scale-95 transition-all"
               >
                   انتقل لمركز الإحالات

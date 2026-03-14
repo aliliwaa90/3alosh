@@ -98,6 +98,26 @@ export interface Transaction {
   destination?: string; 
 }
 
+export interface Withdrawal {
+  id: string;
+  userId: string;
+  userName?: string;
+  amount: number; // العملة بالـ Tliker
+  iqdAmount: number; // المبلغ بالدينار العراقي
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  method: 'zain-cash' | 'k-card' | 'fib' | 'okx' | 'binance';
+  bankAccount: {
+    accountNumber: string;
+    recipientName: string;
+    bankName?: string;
+  };
+  createdAt: string;
+  timestamp: number;
+  approvedAt?: string;
+  rejectionReason?: string;
+  adminNotes?: string;
+}
+
 export interface PaymentMethod {
   id: string;
   name: string;

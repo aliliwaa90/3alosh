@@ -1,8 +1,8 @@
-
+﻿
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
-import { Home, Zap, Wallet, Users, ShoppingBag } from 'lucide-react';
+import { Home, Zap, Wallet, Users, ShoppingBag, ArrowUpRight } from 'lucide-react';
 
 const BottomNav: React.FC = () => {
   const { t, user } = useGame();
@@ -10,9 +10,9 @@ const BottomNav: React.FC = () => {
   const navItems = [
     { to: "/", icon: Home, label: t('home') },
     { to: "/earn", icon: Zap, label: t('earn') },
+    { to: "/withdraw", icon: ArrowUpRight, label: "سحب" },
     { to: "/friends", icon: Users, label: t('friends') },
     { to: "/shop", icon: ShoppingBag, label: t('shop') },
-    { to: "/wallet", icon: Wallet, label: "Airdrop" },
   ];
 
   return (
@@ -49,3 +49,4 @@ const BottomNav: React.FC = () => {
 };
 
 export default BottomNav;
+

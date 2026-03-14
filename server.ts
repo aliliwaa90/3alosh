@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -112,7 +112,10 @@ const getBroadcastTargetIds = (users: UserRecord[]): Array<string | number> => {
 };
 
 const parseBase64Image = (imageData: string): { buffer: Buffer; mimeType: string } | null => {
-  const match = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  const normalized = imageData.replace(/\s+/g, '');
+  const match = normalized.match(
+    /^data:(image\/[a-zA-Z0-9.+-]+)(?:;[a-zA-Z0-9=._-]+)*;base64,([A-Za-z0-9+/=_-]+)$/,
+  );
   if (!match) return null;
 
   try {
@@ -226,36 +229,31 @@ if (token) {
       await upsertUserChat(userId, msg.from?.first_name || 'User', chatId);
     }
 
-    if (msg.text === '/start') {
+    if (msg.text === '/start' || msg.text === '/admin') {
       // Ensure we use the Shared (Public) URL to avoid Google Login
-      let appUrl = process.env.APP_URL || 'https://ais-pre-znsgqh4tsbyfzn57eqevi2-11499289001.europe-west2.run.app';
-      
+      let appUrl =
+        process.env.APP_URL ||
+        'https://ais-pre-znsgqh4tsbyfzn57eqevi2-11499289001.europe-west2.run.app';
+
       // Auto-fix: If the URL is the dev environment (authenticated), switch to pre (shared/public)
       if (appUrl.includes('ais-dev-')) {
         appUrl = appUrl.replace('ais-dev-', 'ais-pre-');
       }
 
-      bot?.sendMessage(chatId, 'مرحباً بك في Tliker! اضغط على الزر أدناه لبدء التعدين.', {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'تشغيل التطبيق 🚀', web_app: { url: appUrl } }]
-          ]
-        }
-      });
-    } else if (msg.text === '/admin') {
-       // Admin Link
-       let appUrl = process.env.APP_URL || 'https://ais-pre-znsgqh4tsbyfzn57eqevi2-11499289001.europe-west2.run.app';
-       if (appUrl.includes('ais-dev-')) {
-         appUrl = appUrl.replace('ais-dev-', 'ais-pre-');
-       }
-       
-       bot?.sendMessage(chatId, 'لوحة تحكم المسؤول 🔒', {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'فتح لوحة الإدارة 🔑', web_app: { url: appUrl + '/#/admin' } }]
-          ]
-        }
-      });
+      const firstName = (msg.from?.first_name || '').trim() || 'صديقي';
+      const channelUrl = (process.env.TELEGRAM_CHANNEL_URL || 'https://t.me/Tleker').trim() || 'https://t.me/Tleker';
+      bot?.sendMessage(
+        chatId,
+        `أهلًا ${firstName} في TOMi 🌟\n\nاضغط زر البدء بالأسفل للدخول إلى التطبيق.`,
+        {
+          reply_markup: {
+            inline_keyboard: [[
+              { text: 'ابدأ الآن 🚀', web_app: { url: appUrl } },
+              { text: 'قناة تيليجرام 📣', url: channelUrl },
+            ]],
+          },
+        },
+      );
     }
   });
   
@@ -320,11 +318,48 @@ app.get('/api/user/:id', async (req, res) => {
   const { id } = req.params;
   const user = await getUserById(id);
   
-  if (user) {
-    res.json(user);
-  } else {
+  if (!user) {
     res.status(404).json({ error: 'User not found' });
+    return;
   }
+
+  const includeReferrals = ['1', 'true', 'yes'].includes(
+    String(req.query.includeReferrals || '').toLowerCase(),
+  );
+  if (!includeReferrals) {
+    res.json(user);
+    return;
+  }
+
+  const requestedLimit = Number(req.query.limit || 100);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(200, Math.floor(requestedLimit)))
+    : 100;
+
+  const users = await listUsers();
+  const allReferrals = users
+    .filter((u) => String(u.referredBy || '') === id)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const referrals = allReferrals
+    .slice(0, limit)
+    .map((u) => ({
+      id: String(u.id || ''),
+      name: String(u.name || 'User'),
+      username: String(u.username || ''),
+      photo_url: String(u.photo_url || ''),
+      joinDate: String(
+        u.joinDate ||
+          (u.createdAt ? new Date(String(u.createdAt)).toLocaleDateString('en-US') : ''),
+      ),
+      createdAt: String(u.createdAt || ''),
+    }));
+
+  res.json({
+    ...user,
+    referrals,
+    referralsCount: allReferrals.length,
+    referralsReturned: referrals.length,
+  });
 });
 
 // Create or Update User
@@ -374,13 +409,191 @@ app.get('/api/leaderboard', async (_req, res) => {
 // Admin API (Protected by simple secret or session in real app)
 app.get('/api/admin/stats', async (_req, res) => {
   const users = await listUsers();
+  const db = readDb();
+  const withdrawals = db.withdrawals || [];
   
   res.json({
     totalUsers: users.length,
-    activeUsers: users.length, // Simplified
-    revenue: 0, // Calculate from transactions if implemented
-    pendingWithdrawals: 0
+    activeUsers: users.length,
+    revenue: 0,
+    pendingWithdrawals: withdrawals.filter((w: any) => w.status === 'pending').length
   });
+});
+
+// --- Withdrawal API Routes ---
+const CONVERSION_RATE = 1; // 1000 Tliker = 1000 IQD
+
+// POST: إنشاء طلب سحب جديد
+app.post('/api/withdrawals/request', async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId, amount, method, bankAccount } = req.body;
+
+    if (!userId || !amount || !method || !bankAccount) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const validMethods = ['zain-cash', 'k-card', 'fib', 'okx', 'binance'];
+    if (!validMethods.includes(method)) {
+      return res.status(400).json({ error: 'Invalid payment method' });
+    }
+
+    if (amount < 1000) {
+      return res.status(400).json({ error: 'Minimum withdrawal is 1000 Tliker' });
+    }
+
+    // Check user balance
+    let db = readDb();
+    const user = db.users[userId];
+    if (!user || user.balance < amount) {
+      return res.status(400).json({ error: 'Insufficient balance' });
+    }
+
+    // Create withdrawal request
+    const withdrawalId = `wd_${Date.now()}`;
+    const withdrawal = {
+      id: withdrawalId,
+      userId,
+      userName: user.name || user.username,
+      amount,
+      iqdAmount: Math.floor(amount * CONVERSION_RATE),
+      status: 'pending',
+      method,
+      bankAccount,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+    };
+
+    if (!db.withdrawals) {
+      db.withdrawals = [];
+    }
+    db.withdrawals.push(withdrawal);
+
+    writeDb(db);
+
+    res.json({
+      success: true,
+      withdrawal,
+      message: 'تم إرسال طلب السحب بنجاح، جاري المراجعة',
+    });
+  } catch (error) {
+    console.error('Withdrawal request error:', error);
+    res.status(500).json({ error: 'Failed to create withdrawal request' });
+  }
+});
+
+// GET: طلبات السحب الخاصة بالمستخدم
+app.get('/api/withdrawals/user/:userId', async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId } = req.params;
+    const db = readDb();
+
+    const userWithdrawals = (db.withdrawals || []).filter(
+      (w: any) => w.userId === userId
+    ).sort((a: any, b: any) => b.timestamp - a.timestamp);
+
+    res.json({
+      success: true,
+      withdrawals: userWithdrawals,
+    });
+  } catch (error) {
+    console.error('Get user withdrawals error:', error);
+    res.status(500).json({ error: 'Failed to fetch withdrawals' });
+  }
+});
+
+// GET: جميع طلبات السحب (للإدارة)
+app.get('/api/admin/withdrawals/all', async (_req: express.Request, res: express.Response) => {
+  try {
+    const db = readDb();
+    const withdrawals = (db.withdrawals || []).sort(
+      (a: any, b: any) => b.timestamp - a.timestamp
+    );
+
+    res.json({
+      success: true,
+      withdrawals,
+      total: withdrawals.length,
+      pending: withdrawals.filter((w: any) => w.status === 'pending').length,
+      completed: withdrawals.filter((w: any) => w.status === 'completed').length,
+      rejected: withdrawals.filter((w: any) => w.status === 'rejected').length,
+    });
+  } catch (error) {
+    console.error('Get all withdrawals error:', error);
+    res.status(500).json({ error: 'Failed to fetch withdrawals' });
+  }
+});
+
+// PATCH: الموافقة على طلب السحب
+app.patch('/api/admin/withdrawals/:withdrawalId/approve', async (req: express.Request, res: express.Response) => {
+  try {
+    const { withdrawalId } = req.params;
+    const { adminNotes } = req.body;
+
+    let db = readDb();
+    const withdrawalIndex = (db.withdrawals || []).findIndex(
+      (w: any) => w.id === withdrawalId
+    );
+
+    if (withdrawalIndex === -1) {
+      return res.status(404).json({ error: 'Withdrawal not found' });
+    }
+
+    const withdrawal = db.withdrawals[withdrawalIndex];
+
+    withdrawal.status = 'completed';
+    withdrawal.approvedAt = new Date().toISOString();
+    if (adminNotes) withdrawal.adminNotes = adminNotes;
+
+    const user = db.users[withdrawal.userId];
+    if (user) {
+      user.balance -= withdrawal.amount;
+    }
+
+    db.withdrawals[withdrawalIndex] = withdrawal;
+    writeDb(db);
+
+    res.json({
+      success: true,
+      withdrawal,
+      message: 'تم الموافقة على السحب بنجاح',
+    });
+  } catch (error) {
+    console.error('Approve withdrawal error:', error);
+    res.status(500).json({ error: 'Failed to approve withdrawal' });
+  }
+});
+
+// PATCH: رفض طلب السحب
+app.patch('/api/admin/withdrawals/:withdrawalId/reject', async (req: express.Request, res: express.Response) => {
+  try {
+    const { withdrawalId } = req.params;
+    const { rejectionReason } = req.body;
+
+    let db = readDb();
+    const withdrawalIndex = (db.withdrawals || []).findIndex(
+      (w: any) => w.id === withdrawalId
+    );
+
+    if (withdrawalIndex === -1) {
+      return res.status(404).json({ error: 'Withdrawal not found' });
+    }
+
+    const withdrawal = db.withdrawals[withdrawalIndex];
+    withdrawal.status = 'rejected';
+    if (rejectionReason) withdrawal.rejectionReason = rejectionReason;
+
+    db.withdrawals[withdrawalIndex] = withdrawal;
+    writeDb(db);
+
+    res.json({
+      success: true,
+      withdrawal,
+      message: 'تم رفض طلب السحب',
+    });
+  } catch (error) {
+    console.error('Reject withdrawal error:', error);
+    res.status(500).json({ error: 'Failed to reject withdrawal' });
+  }
 });
 
 // --- Vite Middleware (Dev) or Static Files (Prod) ---
@@ -405,3 +618,4 @@ async function startServer() {
 }
 
 startServer();
+
