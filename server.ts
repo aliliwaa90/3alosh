@@ -627,19 +627,31 @@ app.patch('/api/admin/withdrawals/:withdrawalId/reject', async (req: express.Req
 
 // --- Vite Middleware (Dev) or Static Files (Prod) ---
 async function startServer() {
+  // Register ALL API routes BEFORE static files
+  // This ensures /api/* routes take priority over catch-all routes
+  
   if (process.env.NODE_ENV !== 'production') {
+    // In development, use Vite middleware
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
+    // Use vite middleware AFTER all API routes
     app.use(vite.middlewares);
   } else {
-    // Serve static files from dist
+    // In production, serve static files
     app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
   }
+  
+  // Catch-all route for SPA - MUST be last
+  app.get('*', (_req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    } else {
+      // In dev mode, vite handles this
+      res.status(404).json({ error: 'Not found' });
+    }
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
