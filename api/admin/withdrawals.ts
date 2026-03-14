@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { getMongoDb, isMongoConfigured } from '../../lib/mongodb';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -105,7 +104,7 @@ router.get('/user/:userId', async (req: Request, res: Response) => {
 });
 
 // GET: جميع طلبات السحب (للإدارة)
-router.get('/all', async (req: Request, res: Response) => {
+router.get('/all', async (_req: Request, res: Response) => {
   try {
     const db = readDb();
     const withdrawals = db.withdrawals || [];
